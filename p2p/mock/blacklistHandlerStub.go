@@ -1,16 +1,12 @@
 package mock
 
-import (
-	"github.com/ElrondNetwork/elrond-go/core"
-)
-
 // BlacklistHandlerStub -
 type BlacklistHandlerStub struct {
-	HasCalled func(pid core.PeerID) bool
+	HasCalled func(pid string) bool
 }
 
 // Has -
-func (bhs *BlacklistHandlerStub) Has(pid core.PeerID) bool {
+func (bhs *BlacklistHandlerStub) Has(pid string) bool {
 	return bhs.HasCalled(pid)
 }
 

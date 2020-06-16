@@ -1,4 +1,4 @@
-package timecache
+package timecache_test
 
 import (
 	"testing"
@@ -6,62 +6,47 @@ import (
 
 	"github.com/ElrondNetwork/elrond-go/core/check"
 	"github.com/ElrondNetwork/elrond-go/storage"
+	"github.com/ElrondNetwork/elrond-go/storage/timecache"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 //------- Add
 
-func TestTimeCache_EmptyKeyShouldErr(t *testing.T) {
-	t.Parallel()
-
-	tc := NewTimeCache(time.Second)
-	key := ""
-
-	err := tc.Add(key)
-
-	_, ok := tc.Value(key)
-	assert.Equal(t, storage.ErrEmptyKey, err)
-	assert.False(t, ok)
-}
-
 func TestTimeCache_AddShouldWork(t *testing.T) {
 	t.Parallel()
 
-	tc := NewTimeCache(time.Second)
+	tc := timecache.NewTimeCache(time.Second)
 	key := "key1"
 
 	err := tc.Add(key)
 
 	keys := tc.Keys()
-	_, ok := tc.Value(key)
+	_, ok := tc.KeyTime(key)
 	assert.Nil(t, err)
 	assert.Equal(t, key, keys[0])
 	assert.True(t, ok)
 }
 
-func TestTimeCache_DoubleAddShouldWork(t *testing.T) {
+func TestTimeCache_DoubleAddShouldErrAndRetainTheKey(t *testing.T) {
 	t.Parallel()
 
-	tc := NewTimeCache(time.Second)
+	tc := timecache.NewTimeCache(time.Second)
 	key := "key1"
 
-	_ = tc.AddWithSpan(key, time.Second)
-	newSpan := time.Second * 4
-	err := tc.AddWithSpan(key, newSpan)
-	assert.Nil(t, err)
+	_ = tc.Add(key)
+	err := tc.Add(key)
 
 	keys := tc.Keys()
-	s, ok := tc.Value(key)
+	_, ok := tc.KeyTime(key)
+	assert.Equal(t, storage.ErrDuplicateKeyToAdd, err)
 	assert.Equal(t, key, keys[0])
 	assert.True(t, ok)
-	assert.Equal(t, newSpan, s.span)
 }
 
 func TestTimeCache_DoubleAddAfterExpirationAndSweepShouldWork(t *testing.T) {
 	t.Parallel()
 
-	tc := NewTimeCache(time.Millisecond)
+	tc := timecache.NewTimeCache(time.Millisecond)
 	key := "key1"
 
 	_ = tc.Add(key)
@@ -70,29 +55,10 @@ func TestTimeCache_DoubleAddAfterExpirationAndSweepShouldWork(t *testing.T) {
 	err := tc.Add(key)
 
 	keys := tc.Keys()
-	_, ok := tc.Value(key)
+	_, ok := tc.KeyTime(key)
 	assert.Nil(t, err)
 	assert.Equal(t, key, keys[0])
 	assert.True(t, ok)
-}
-
-func TestTimeCache_AddWithSpanShouldWork(t *testing.T) {
-	t.Parallel()
-
-	tc := NewTimeCache(time.Second)
-	key := "key1"
-
-	duration := time.Second * 1638
-	err := tc.AddWithSpan(key, duration)
-
-	keys := tc.Keys()
-	_, ok := tc.Value(key)
-	assert.Nil(t, err)
-	assert.Equal(t, key, keys[0])
-	assert.True(t, ok)
-
-	spanRecovered, _ := tc.Value(key)
-	assert.Equal(t, duration, spanRecovered.span)
 }
 
 //------- Has
@@ -100,7 +66,7 @@ func TestTimeCache_AddWithSpanShouldWork(t *testing.T) {
 func TestTimeCache_HasNotExistingShouldRetFalse(t *testing.T) {
 	t.Parallel()
 
-	tc := NewTimeCache(time.Second)
+	tc := timecache.NewTimeCache(time.Second)
 	key := "key1"
 
 	exists := tc.Has(key)
@@ -111,7 +77,7 @@ func TestTimeCache_HasNotExistingShouldRetFalse(t *testing.T) {
 func TestTimeCache_HasExistsShouldRetTrue(t *testing.T) {
 	t.Parallel()
 
-	tc := NewTimeCache(time.Second)
+	tc := timecache.NewTimeCache(time.Second)
 	key := "key1"
 	_ = tc.Add(key)
 
@@ -123,7 +89,7 @@ func TestTimeCache_HasExistsShouldRetTrue(t *testing.T) {
 func TestTimeCache_HasCheckEvictionIsDoneProperly(t *testing.T) {
 	t.Parallel()
 
-	tc := NewTimeCache(time.Millisecond)
+	tc := timecache.NewTimeCache(time.Millisecond)
 	key1 := "key1"
 	key2 := "key2"
 	_ = tc.Add(key1)
@@ -142,7 +108,7 @@ func TestTimeCache_HasCheckEvictionIsDoneProperly(t *testing.T) {
 func TestTimeCache_HasCheckHandlingInconsistency(t *testing.T) {
 	t.Parallel()
 
-	tc := NewTimeCache(time.Second)
+	tc := timecache.NewTimeCache(time.Second)
 	key := "key1"
 	_ = tc.Add(key)
 	tc.ClearMap()
@@ -154,73 +120,12 @@ func TestTimeCache_HasCheckHandlingInconsistency(t *testing.T) {
 	assert.Equal(t, 0, len(tc.Keys()))
 }
 
-//------- Update
-
-func TestTimeCache_UpdateEmptyKeyShouldErr(t *testing.T) {
-	t.Parallel()
-
-	tc := NewTimeCache(time.Second)
-	err := tc.Update("", time.Second)
-
-	assert.Equal(t, storage.ErrEmptyKey, err)
-}
-
-func TestTimeCache_UpdateShouldAddIfMissing(t *testing.T) {
-	t.Parallel()
-
-	tc := NewTimeCache(time.Second)
-	key := "key"
-	s := time.Second * 45
-	err := tc.Update(key, s)
-	assert.Nil(t, err)
-
-	recovered, ok := tc.Value(key)
-	require.True(t, ok)
-	assert.Equal(t, s, recovered.span)
-}
-
-func TestTimeCache_UpdateLessSpanShouldNotUpdate(t *testing.T) {
-	t.Parallel()
-
-	tc := NewTimeCache(time.Second)
-	key := "key"
-	highSpan := time.Second * 45
-	lowSpan := time.Second * 44
-	err := tc.Update(key, highSpan)
-	assert.Nil(t, err)
-
-	err = tc.Update(key, lowSpan)
-	assert.Nil(t, err)
-
-	recovered, ok := tc.Value(key)
-	require.True(t, ok)
-	assert.Equal(t, highSpan, recovered.span)
-}
-
-func TestTimeCache_UpdatemoreSpanShouldUpdate(t *testing.T) {
-	t.Parallel()
-
-	tc := NewTimeCache(time.Second)
-	key := "key"
-	highSpan := time.Second * 45
-	lowSpan := time.Second * 44
-	err := tc.Update(key, lowSpan)
-	assert.Nil(t, err)
-
-	err = tc.Update(key, highSpan)
-	assert.Nil(t, err)
-
-	recovered, ok := tc.Value(key)
-	require.True(t, ok)
-	assert.Equal(t, highSpan, recovered.span)
-}
-
 //------- IsInterfaceNil
 
 func TestTimeCache_IsInterfaceNilNotNil(t *testing.T) {
 	t.Parallel()
 
-	tc := NewTimeCache(time.Second)
+	tc := timecache.NewTimeCache(time.Second)
 
 	assert.False(t, check.IfNil(tc))
 }
@@ -228,7 +133,7 @@ func TestTimeCache_IsInterfaceNilNotNil(t *testing.T) {
 func TestTimeCache_IsInterfaceNil(t *testing.T) {
 	t.Parallel()
 
-	var tc *TimeCache
+	var tc *timecache.TimeCache
 
 	assert.True(t, check.IfNil(tc))
 }

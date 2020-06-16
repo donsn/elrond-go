@@ -2,11 +2,12 @@ package blacklist
 
 import (
 	"fmt"
+	"math"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/ElrondNetwork/elrond-go-logger"
+	logger "github.com/ElrondNetwork/elrond-go-logger"
 	"github.com/ElrondNetwork/elrond-go/integrationTests"
 	"github.com/ElrondNetwork/elrond-go/integrationTests/p2p/antiflood"
 	"github.com/ElrondNetwork/elrond-go/p2p"
@@ -17,8 +18,6 @@ import (
 	"github.com/ElrondNetwork/elrond-go/storage/timecache"
 	"github.com/stretchr/testify/assert"
 )
-
-var log = logger.GetOrCreate("integrationtests/p2p/antiflooding/blacklist")
 
 // TestAntifloodAndBlacklistWithNumMessages tests what happens if a peer decides to send a large number of messages
 // all originating from its peer ID
@@ -47,19 +46,22 @@ func TestAntifloodAndBlacklistWithNumMessages(t *testing.T) {
 	topic := "test_topic"
 	broadcastMessageDuration := time.Second * 2
 	peerMaxNumProcessMessages := uint32(5)
+	maxNumProcessMessages := uint32(math.MaxUint32)
 	maxMessageSize := uint64(1 << 20) //1MB
 
 	blacklistProcessors, blacklistHandlers := createBlacklistHandlersAndProcessors(
 		peers,
 		peerMaxNumProcessMessages*2,
 		maxMessageSize*2,
-		2,
+		1,
 	)
 	interceptors, err := antiflood.CreateTopicsAndMockInterceptors(
 		peers,
 		blacklistProcessors,
 		topic,
 		peerMaxNumProcessMessages,
+		maxMessageSize,
+		maxNumProcessMessages,
 		maxMessageSize,
 	)
 	applyBlacklistComponents(peers, blacklistHandlers)
@@ -140,7 +142,7 @@ func reConnectFloodingPeer(peers []p2p.Messenger, flooderIdx int, floodedIdxes [
 	}
 }
 
-func applyBlacklistComponents(peers []p2p.Messenger, blacklistHandler []process.PeerBlackListHandler) {
+func applyBlacklistComponents(peers []p2p.Messenger, blacklistHandler []process.BlackListHandler) {
 	for idx, peer := range peers {
 		_ = peer.SetPeerBlackListHandler(blacklistHandler[idx])
 	}
@@ -151,26 +153,21 @@ func createBlacklistHandlersAndProcessors(
 	thresholdNumReceived uint32,
 	thresholdSizeReceived uint64,
 	maxFloodingRounds uint32,
-) ([]floodPreventers.QuotaStatusHandler, []process.PeerBlackListHandler) {
-	var err error
+) ([]floodPreventers.QuotaStatusHandler, []process.BlackListHandler) {
 
 	blacklistProcessors := make([]floodPreventers.QuotaStatusHandler, len(peers))
-	blacklistHandlers := make([]process.PeerBlackListHandler, len(peers))
+	blacklistHandlers := make([]process.BlackListHandler, len(peers))
 	for i := range peers {
 		blacklistCache, _ := lrucache.NewCache(5000)
-		blacklistHandlers[i], _ = timecache.NewPeerTimeCache(timecache.NewTimeCache(time.Minute * 5))
+		blacklistHandlers[i] = timecache.NewTimeCache(time.Minute * 5)
 
-		blacklistProcessors[i], err = blackList.NewP2PBlackListProcessor(
+		blacklistProcessors[i], _ = blackList.NewP2PBlackListProcessor(
 			blacklistCache,
 			blacklistHandlers[i],
 			thresholdNumReceived,
 			thresholdSizeReceived,
 			maxFloodingRounds,
-			time.Minute*5,
-			"",
-			peers[i].ID(),
 		)
-		log.LogIfError(err)
 	}
 	return blacklistProcessors, blacklistHandlers
 }

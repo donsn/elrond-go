@@ -1,27 +1,21 @@
 package mock
 
-import "github.com/ElrondNetwork/elrond-go/core"
-
 // TopicAntiFloodStub -
 type TopicAntiFloodStub struct {
-	IncreaseLoadCalled func(pid core.PeerID, topic string, numMessages uint32) error
+	AccumulateCalled func(identifier string, topic string) bool
 }
 
-// IncreaseLoad -
-func (t *TopicAntiFloodStub) IncreaseLoad(pid core.PeerID, topic string, numMessages uint32) error {
-	if t.IncreaseLoadCalled != nil {
-		return t.IncreaseLoadCalled(pid, topic, numMessages)
+// Accumulate -
+func (t *TopicAntiFloodStub) Accumulate(identifier string, topic string) bool {
+	if t.AccumulateCalled != nil {
+		return t.AccumulateCalled(identifier, topic)
 	}
 
-	return nil
+	return true
 }
 
 // ResetForTopic -
 func (t *TopicAntiFloodStub) ResetForTopic(_ string) {
-}
-
-// ResetForNotRegisteredTopics -
-func (t *TopicAntiFloodStub) ResetForNotRegisteredTopics() {
 }
 
 // SetMaxMessagesForTopic -

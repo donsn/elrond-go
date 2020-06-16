@@ -138,7 +138,7 @@ type Messenger interface {
 	ThresholdMinConnectedPeers() int
 	SetThresholdMinConnectedPeers(minConnectedPeers int) error
 	SetPeerShardResolver(peerShardResolver PeerShardResolver) error
-	SetPeerBlackListHandler(handler PeerBlacklistHandler) error
+	SetPeerBlackListHandler(handler BlacklistHandler) error
 	GetConnectedPeersInfo() *ConnectedPeersInfo
 	SetMessageIdsCacher(cacher Cacher) error
 	UnjoinAllTopics() error
@@ -259,8 +259,8 @@ type CommonSharder interface {
 // PeerBlacklistHandler defines the behavior of a component that is able to decide if a peer ID is black listed or not
 //TODO merge this interface with the PeerShardResolver => P2PProtocolHandler ?
 //TODO move antiflooding inside network messenger
-type PeerBlacklistHandler interface {
-	Has(pid core.PeerID) bool
+type BlacklistHandler interface {
+	Has(key string) bool
 	IsInterfaceNil() bool
 }
 
@@ -268,7 +268,7 @@ type PeerBlacklistHandler interface {
 //TODO this should be removed after merging of the PeerShardResolver and BlacklistHandler
 type ConnectionMonitorWrapper interface {
 	CheckConnectionsBlocking()
-	SetBlackListHandler(handler PeerBlacklistHandler) error
+	SetBlackListHandler(handler BlacklistHandler) error
 	IsInterfaceNil() bool
 }
 

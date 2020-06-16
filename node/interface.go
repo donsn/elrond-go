@@ -2,7 +2,6 @@ package node
 
 import (
 	"io"
-	"time"
 
 	"github.com/ElrondNetwork/elrond-go/core"
 	"github.com/ElrondNetwork/elrond-go/p2p"
@@ -40,11 +39,9 @@ type NetworkShardingCollector interface {
 // p2p messages
 type P2PAntifloodHandler interface {
 	CanProcessMessage(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error
-	CanProcessMessagesOnTopic(peer core.PeerID, topic string, numMessages uint32, totalSize uint64, sequence []byte) error
+	CanProcessMessageOnTopic(peer core.PeerID, topic string) error
 	ResetForTopic(topic string)
 	SetMaxMessagesForTopic(topic string, maxNum uint32)
-	ApplyConsensusSize(size int)
-	BlacklistPeer(peer core.PeerID, reason string, duration time.Duration)
 	IsInterfaceNil() bool
 }
 

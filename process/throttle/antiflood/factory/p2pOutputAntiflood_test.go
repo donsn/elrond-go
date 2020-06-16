@@ -5,7 +5,6 @@ import (
 
 	"github.com/ElrondNetwork/elrond-go/config"
 	"github.com/ElrondNetwork/elrond-go/core/check"
-	"github.com/ElrondNetwork/elrond-go/process/throttle/antiflood/disabled"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -21,7 +20,7 @@ func TestNewP2POutputAntiFlood_ShouldWorkAndReturnDisabledImplementations(t *tes
 	assert.NotNil(t, af)
 	assert.Nil(t, err)
 
-	_, ok := af.(*disabled.AntiFlood)
+	_, ok := af.(*disabledAntiFlood)
 	assert.True(t, ok)
 }
 
@@ -36,10 +35,8 @@ func TestNewP2POutputAntiFlood_BadCacheConfigShouldErr(t *testing.T) {
 				Capacity: 10,
 				Shards:   2,
 			},
-			PeerMaxOutput: config.AntifloodLimitsConfig{
-				BaseMessagesPerInterval: 10,
-				TotalSizePerInterval:    10,
-			},
+			PeerMaxMessagesPerSecond:  10,
+			PeerMaxTotalSizePerSecond: 10,
 		},
 	}
 
@@ -59,10 +56,8 @@ func TestNewP2POutputAntiFlood_BadConfigShouldErr(t *testing.T) {
 				Capacity: 10,
 				Shards:   2,
 			},
-			PeerMaxOutput: config.AntifloodLimitsConfig{
-				BaseMessagesPerInterval: 0,
-				TotalSizePerInterval:    10,
-			},
+			PeerMaxMessagesPerSecond:  0,
+			PeerMaxTotalSizePerSecond: 10,
 		},
 	}
 
@@ -82,10 +77,8 @@ func TestNewP2POutputAntiFlood_ShouldWorkAndReturnOkImplementations(t *testing.T
 				Capacity: 10,
 				Shards:   2,
 			},
-			PeerMaxOutput: config.AntifloodLimitsConfig{
-				BaseMessagesPerInterval: 10,
-				TotalSizePerInterval:    10,
-			},
+			PeerMaxMessagesPerSecond:  10,
+			PeerMaxTotalSizePerSecond: 10,
 		},
 	}
 

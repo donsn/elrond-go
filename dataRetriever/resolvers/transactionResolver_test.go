@@ -131,7 +131,7 @@ func TestTxResolver_ProcessReceivedMessageCanProcessMessageErrorsShouldErr(t *te
 		CanProcessMessageCalled: func(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error {
 			return expectedErr
 		},
-		CanProcessMessagesOnTopicCalled: func(peer core.PeerID, topic string, numMessages uint32, totalSize uint64, sequence []byte) error {
+		CanProcessMessageOnTopicCalled: func(peer core.PeerID, topic string) error {
 			return nil
 		},
 	}

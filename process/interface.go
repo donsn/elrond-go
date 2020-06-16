@@ -575,18 +575,7 @@ type PeerChangesHandler interface {
 // BlackListHandler can determine if a certain key is or not blacklisted
 type BlackListHandler interface {
 	Add(key string) error
-	AddWithSpan(key string, span time.Duration) error
 	Has(key string) bool
-	Sweep()
-	IsInterfaceNil() bool
-}
-
-// PeerBlackListHandler can determine if a certain key is or not blacklisted
-type PeerBlackListHandler interface {
-	Add(pid core.PeerID) error
-	AddWithSpan(pid core.PeerID, span time.Duration) error
-	Update(pid core.PeerID, span time.Duration) error
-	Has(pid core.PeerID) bool
 	Sweep()
 	IsInterfaceNil() bool
 }
@@ -689,8 +678,8 @@ type BlockTracker interface {
 // FloodPreventer defines the behavior of a component that is able to signal that too many events occurred
 // on a provided identifier between Reset calls
 type FloodPreventer interface {
-	IncreaseLoad(pid core.PeerID, size uint64) error
-	ApplyConsensusSize(size int)
+	AccumulateGlobal(identifier string, size uint64) bool
+	Accumulate(identifier string, size uint64) bool
 	Reset()
 	IsInterfaceNil() bool
 }
@@ -698,9 +687,8 @@ type FloodPreventer interface {
 // TopicFloodPreventer defines the behavior of a component that is able to signal that too many events occurred
 // on a provided identifier between Reset calls, on a given topic
 type TopicFloodPreventer interface {
-	IncreaseLoad(pid core.PeerID, topic string, numMessages uint32) error
+	Accumulate(identifier string, topic string) bool
 	ResetForTopic(topic string)
-	ResetForNotRegisteredTopics()
 	SetMaxMessagesForTopic(topic string, maxNum uint32)
 	IsInterfaceNil() bool
 }
@@ -709,10 +697,7 @@ type TopicFloodPreventer interface {
 // p2p messages
 type P2PAntifloodHandler interface {
 	CanProcessMessage(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error
-	CanProcessMessagesOnTopic(pid core.PeerID, topic string, numMessages uint32, totalSize uint64, sequence []byte) error
-	ApplyConsensusSize(size int)
-	SetDebugger(debugger AntifloodDebugger) error
-	BlacklistPeer(peer core.PeerID, reason string, duration time.Duration)
+	CanProcessMessageOnTopic(peer core.PeerID, topic string) error
 	IsInterfaceNil() bool
 }
 

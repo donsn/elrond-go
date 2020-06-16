@@ -4,41 +4,31 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ElrondNetwork/elrond-go/dataRetriever"
 	"github.com/ElrondNetwork/elrond-go/storage"
 )
-
-var _ dataRetriever.RequestedItemsHandler = (*TimeCache)(nil)
-
-type span struct {
-	timestamp time.Time
-	span      time.Duration
-}
 
 // TimeCache can retain an amount of string keys for a defined period of time
 // sweeping (clean-up) is triggered each time a new item is added or a key is present in the time cache
 // This data structure is concurrent safe.
 type TimeCache struct {
-	mut         sync.Mutex
-	data        map[string]*span
-	defaultSpan time.Duration
+	mut  sync.Mutex
+	data map[string]time.Time
+	keys []string
+	span time.Duration
 }
 
 // NewTimeCache creates a new time cache data structure instance
-func NewTimeCache(defaultSpan time.Duration) *TimeCache {
+func NewTimeCache(span time.Duration) *TimeCache {
 	return &TimeCache{
-		data:        make(map[string]*span),
-		defaultSpan: defaultSpan,
+		data: make(map[string]time.Time),
+		keys: make([]string, 0),
+		span: span,
 	}
 }
 
 // Add will store the key in the time cache
 // Double adding the key is not permitted by the time cache. Also, add will trigger sweeping.
 func (tc *TimeCache) Add(key string) error {
-	return tc.add(key, tc.defaultSpan)
-}
-
-func (tc *TimeCache) add(key string, duration time.Duration) error {
 	if len(key) == 0 {
 		return storage.ErrEmptyKey
 	}
@@ -46,44 +36,13 @@ func (tc *TimeCache) add(key string, duration time.Duration) error {
 	tc.mut.Lock()
 	defer tc.mut.Unlock()
 
-	tc.data[key] = &span{
-		timestamp: time.Now(),
-		span:      duration,
-	}
-	return nil
-}
-
-// AddWithSpan will store the key in the time cache with the provided span duration
-// Double adding the key is not permitted by the time cache. Also, add will trigger sweeping.
-func (tc *TimeCache) AddWithSpan(key string, duration time.Duration) error {
-	return tc.add(key, duration)
-}
-
-// Update will add the key and provided duration if not exists
-// If the record exists, will update the duration if the provided duration is larger than existing
-// Also, it will reset the contained timestamp to time.Now
-func (tc *TimeCache) Update(key string, duration time.Duration) error {
-	if len(key) == 0 {
-		return storage.ErrEmptyKey
+	_, ok := tc.data[key]
+	if ok {
+		return storage.ErrDuplicateKeyToAdd
 	}
 
-	tc.mut.Lock()
-	defer tc.mut.Unlock()
-
-	existing, found := tc.data[key]
-	if found {
-		if existing.span < duration {
-			existing.span = duration
-		}
-		existing.timestamp = time.Now()
-
-		return nil
-	}
-
-	tc.data[key] = &span{
-		timestamp: time.Now(),
-		span:      duration,
-	}
+	tc.data[key] = time.Now()
+	tc.keys = append(tc.keys, key)
 	return nil
 }
 
@@ -93,10 +52,25 @@ func (tc *TimeCache) Sweep() {
 	tc.mut.Lock()
 	defer tc.mut.Unlock()
 
-	for key, element := range tc.data {
-		isOldElement := time.Since(element.timestamp) > element.span
+	for {
+		if len(tc.keys) == 0 {
+			return
+		}
+
+		firstElement := tc.keys[0]
+		t, ok := tc.data[firstElement]
+		if !ok {
+			//inconsistency handled
+			tc.keys = tc.keys[1:]
+			continue
+		}
+
+		isOldElement := time.Since(t) > tc.span
 		if isOldElement {
-			delete(tc.data, key)
+			tc.keys = tc.keys[1:]
+			delete(tc.data, firstElement)
+		} else {
+			return
 		}
 	}
 }

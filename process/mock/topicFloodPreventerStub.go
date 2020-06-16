@@ -1,39 +1,25 @@
 package mock
 
-import "github.com/ElrondNetwork/elrond-go/core"
-
 // TopicAntiFloodStub -
 type TopicAntiFloodStub struct {
-	IncreaseLoadCalled           func(pid core.PeerID, topic string, numMessages uint32) error
-	ResetForTopicCalled          func(topic string)
-	SetMaxMessagesForTopicCalled func(topic string, num uint32)
+	AccumulateCalled func(identifier string, topic string) bool
 }
 
-// IncreaseLoad -
-func (t *TopicAntiFloodStub) IncreaseLoad(pid core.PeerID, topic string, numMessages uint32) error {
-	if t.IncreaseLoadCalled != nil {
-		return t.IncreaseLoadCalled(pid, topic, numMessages)
+// Accumulate -
+func (t *TopicAntiFloodStub) Accumulate(identifier string, topic string) bool {
+	if t.AccumulateCalled != nil {
+		return t.AccumulateCalled(identifier, topic)
 	}
 
-	return nil
+	return true
 }
 
 // ResetForTopic -
-func (t *TopicAntiFloodStub) ResetForTopic(topic string) {
-	if t.ResetForTopicCalled != nil {
-		t.ResetForTopicCalled(topic)
-	}
-}
-
-// ResetForNotRegisteredTopics -
-func (t *TopicAntiFloodStub) ResetForNotRegisteredTopics() {
+func (t *TopicAntiFloodStub) ResetForTopic(_ string) {
 }
 
 // SetMaxMessagesForTopic -
-func (t *TopicAntiFloodStub) SetMaxMessagesForTopic(topic string, num uint32) {
-	if t.SetMaxMessagesForTopicCalled != nil {
-		t.SetMaxMessagesForTopicCalled(topic, num)
-	}
+func (t *TopicAntiFloodStub) SetMaxMessagesForTopic(_ string, _ uint32) {
 }
 
 // IsInterfaceNil -

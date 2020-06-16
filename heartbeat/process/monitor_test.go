@@ -25,7 +25,7 @@ func createMockP2PAntifloodHandler() *mock.P2PAntifloodHandlerStub {
 		CanProcessMessageCalled: func(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error {
 			return nil
 		},
-		CanProcessMessagesOnTopicCalled: func(peer core.PeerID, topic string, numMessages uint32, totalSize uint64, sequence []byte) error {
+		CanProcessMessageOnTopicCalled: func(peer core.PeerID, topic string) error {
 			return nil
 		},
 	}
@@ -578,18 +578,7 @@ func TestMonitor_ProcessReceivedMessageImpersonatedMessageShouldErr(t *testing.T
 			return &rcvHb, nil
 		},
 	}
-	originatorWasBlacklisted := false
-	connectedPeerWasBlacklisted := false
-	arg.AntifloodHandler = &mock.P2PAntifloodHandlerStub{
-		BlacklistPeerCalled: func(pid core.PeerID, reason string, duration time.Duration) {
-			if pid == originator {
-				originatorWasBlacklisted = true
-			}
-			if pid == fromConnectedPeerId {
-				connectedPeerWasBlacklisted = true
-			}
-		},
-	}
+	arg.AntifloodHandler = &mock.P2PAntifloodHandlerStub{}
 	mon, _ := process.NewMonitor(arg)
 
 	hb := data.Heartbeat{
@@ -603,8 +592,6 @@ func TestMonitor_ProcessReceivedMessageImpersonatedMessageShouldErr(t *testing.T
 
 	err := mon.ProcessReceivedMessage(message, fromConnectedPeerId)
 	assert.True(t, errors.Is(err, heartbeat.ErrHeartbeatPidMismatch))
-	assert.True(t, originatorWasBlacklisted)
-	assert.True(t, connectedPeerWasBlacklisted)
 }
 
 func sendHbMessageFromPubKey(pubKey string, mon *process.Monitor) error {

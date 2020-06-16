@@ -1,4 +1,4 @@
-package disabled
+package factory
 
 import (
 	"testing"
@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestAntiFlood_ShouldNotPanic(t *testing.T) {
+func TestDisabledAntiFlood_ShouldNotPanic(t *testing.T) {
 	t.Parallel()
 
 	defer func() {
@@ -16,12 +16,11 @@ func TestAntiFlood_ShouldNotPanic(t *testing.T) {
 		assert.Nil(t, r, "this shouldn't panic")
 	}()
 
-	daf := &AntiFlood{}
+	daf := &disabledAntiFlood{}
 	assert.False(t, check.IfNil(daf))
 
 	daf.SetMaxMessagesForTopic("test", 10)
 	daf.ResetForTopic("test")
-	daf.ApplyConsensusSize(0)
-	_ = daf.CanProcessMessagesOnTopic(core.PeerID(1), "test", 1, 0, nil)
+	_ = daf.CanProcessMessageOnTopic(core.PeerID(1), "test")
 	_ = daf.CanProcessMessage(nil, core.PeerID(2))
 }

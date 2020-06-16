@@ -1,7 +1,5 @@
 package p2pQuota
 
-import "github.com/ElrondNetwork/elrond-go/core"
-
 type Quota struct {
 	*quota
 }
@@ -22,9 +20,9 @@ func (q *Quota) SizeProcessed() uint64 {
 	return q.sizeProcessedMessages
 }
 
-func (pqp *p2pQuotaProcessor) GetQuota(pid core.PeerID) *Quota {
+func (pqp *p2pQuotaProcessor) GetQuota(identifier string) *Quota {
 	pqp.mutStatistics.Lock()
-	q := pqp.statistics[pid]
+	q := pqp.statistics[identifier]
 	pqp.mutStatistics.Unlock()
 
 	if q == nil {

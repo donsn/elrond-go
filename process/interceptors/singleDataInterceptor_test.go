@@ -180,8 +180,6 @@ func TestSingleDataInterceptor_ProcessReceivedMessageFactoryCreationErrorShouldE
 
 	errExpected := errors.New("expected error")
 	originatorPid := core.PeerID("originator")
-	originatorBlackListed := false
-	fromConnectedPeerBlackListed := false
 	sdi, _ := interceptors.NewSingleDataInterceptor(
 		testTopic,
 		&mock.InterceptedDataFactoryStub{
@@ -195,16 +193,7 @@ func TestSingleDataInterceptor_ProcessReceivedMessageFactoryCreationErrorShouldE
 				return true
 			},
 		},
-		&mock.P2PAntifloodHandlerStub{
-			BlacklistPeerCalled: func(peer core.PeerID, reason string, duration time.Duration) {
-				if peer == originatorPid {
-					originatorBlackListed = true
-				}
-				if peer == fromConnectedPeerId {
-					fromConnectedPeerBlackListed = true
-				}
-			},
-		},
+		&mock.P2PAntifloodHandlerStub{},
 		&mock.WhiteListHandlerStub{},
 	)
 
@@ -215,8 +204,6 @@ func TestSingleDataInterceptor_ProcessReceivedMessageFactoryCreationErrorShouldE
 	err := sdi.ProcessReceivedMessage(msg, fromConnectedPeerId)
 
 	assert.Equal(t, errExpected, err)
-	assert.True(t, originatorBlackListed)
-	assert.True(t, fromConnectedPeerBlackListed)
 }
 
 func TestSingleDataInterceptor_ProcessReceivedMessageIsNotValidShouldNotCallProcess(t *testing.T) {

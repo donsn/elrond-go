@@ -1930,9 +1930,9 @@ func TestNode_ShouldWork(t *testing.T) {
 			},
 		}),
 		node.WithValidatorPubkeyConverter(mock.NewPubkeyConverterMock(32)),
-		node.WithPeerBlackListHandler(&mock.PeerBlackListHandlerStub{
-			HasCalled: func(pid core.PeerID) bool {
-				return pid == core.PeerID(pid1)
+		node.WithPeerBlackListHandler(&mock.BlackListHandlerStub{
+			HasCalled: func(key string) bool {
+				return key == core.PeerID(pid1).Pretty()
 			},
 		}),
 	)

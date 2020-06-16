@@ -16,7 +16,7 @@ const DurationBootstrapingTime = 2 * time.Second
 // FloodTheNetwork -
 func FloodTheNetwork(peer p2p.Messenger, topic string, isFlooding *atomic.Value, messageSize uint64) {
 	for {
-		_ = peer.BroadcastOnChannelBlocking(topic, topic, make([]byte, messageSize))
+		peer.Broadcast(topic, make([]byte, messageSize))
 
 		if !isFlooding.Load().(bool) {
 			return
@@ -31,6 +31,8 @@ func CreateTopicsAndMockInterceptors(
 	topic string,
 	peerMaxNumMessages uint32,
 	peerMaxSize uint64,
+	maxNumMessages uint32,
+	maxSize uint64,
 ) ([]*MessageProcessor, error) {
 
 	interceptors := make([]*MessageProcessor, len(peers))
@@ -49,21 +51,14 @@ func CreateTopicsAndMockInterceptors(
 		if len(blacklistHandlers) == len(peers) {
 			statusHandlers = append(statusHandlers, blacklistHandlers[idx])
 		}
-		arg := floodPreventers.ArgQuotaFloodPreventer{
-			Name:                      "test",
-			Cacher:                    antifloodPool,
-			StatusHandlers:            statusHandlers,
-			BaseMaxNumMessagesPerPeer: peerMaxNumMessages,
-			MaxTotalSizePerPeer:       peerMaxSize,
-			PercentReserved:           0,
-			IncreaseThreshold:         0,
-			IncreaseFactor:            0,
-		}
-		interceptors[idx].FloodPreventer, err = floodPreventers.NewQuotaFloodPreventer(arg)
-		if err != nil {
-			return nil, err
-		}
-
+		interceptors[idx].FloodPreventer, _ = floodPreventers.NewQuotaFloodPreventer(
+			antifloodPool,
+			statusHandlers,
+			peerMaxNumMessages,
+			peerMaxSize,
+			maxNumMessages,
+			maxSize,
+		)
 		err = p.RegisterMessageProcessor(topic, interceptors[idx])
 		if err != nil {
 			return nil, fmt.Errorf("%w, pid: %s", err, p.ID())

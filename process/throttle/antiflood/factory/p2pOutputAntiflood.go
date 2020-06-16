@@ -1,16 +1,15 @@
 package factory
 
 import (
+	"math"
+
 	"github.com/ElrondNetwork/elrond-go/config"
 	"github.com/ElrondNetwork/elrond-go/process"
 	"github.com/ElrondNetwork/elrond-go/process/throttle/antiflood"
-	"github.com/ElrondNetwork/elrond-go/process/throttle/antiflood/disabled"
 	"github.com/ElrondNetwork/elrond-go/process/throttle/antiflood/floodPreventers"
 	storageFactory "github.com/ElrondNetwork/elrond-go/storage/factory"
 	"github.com/ElrondNetwork/elrond-go/storage/storageUnit"
 )
-
-const outputReservedPercent = float32(0)
 
 // NewP2POutputAntiFlood will return an instance of an output antiflood component based on the config
 func NewP2POutputAntiFlood(mainConfig config.Config) (process.P2PAntifloodHandler, error) {
@@ -18,7 +17,7 @@ func NewP2POutputAntiFlood(mainConfig config.Config) (process.P2PAntifloodHandle
 		return initP2POutputAntiFlood(mainConfig)
 	}
 
-	return &disabled.AntiFlood{}, nil
+	return &disabledAntiFlood{}, nil
 }
 
 func initP2POutputAntiFlood(mainConfig config.Config) (process.P2PAntifloodHandler, error) {
@@ -28,26 +27,22 @@ func initP2POutputAntiFlood(mainConfig config.Config) (process.P2PAntifloodHandl
 		return nil, err
 	}
 
-	basePeerMaxMessagesPerInterval := mainConfig.Antiflood.PeerMaxOutput.BaseMessagesPerInterval
-	peerMaxTotalSizePerInterval := mainConfig.Antiflood.PeerMaxOutput.TotalSizePerInterval
-	arg := floodPreventers.ArgQuotaFloodPreventer{
-		Name:                      outputIdentifier,
-		Cacher:                    antifloodCache,
-		StatusHandlers:            make([]floodPreventers.QuotaStatusHandler, 0),
-		BaseMaxNumMessagesPerPeer: basePeerMaxMessagesPerInterval,
-		MaxTotalSizePerPeer:       peerMaxTotalSizePerInterval,
-		PercentReserved:           outputReservedPercent,
-		IncreaseThreshold:         0,
-		IncreaseFactor:            0,
-	}
-
-	floodPreventer, err := floodPreventers.NewQuotaFloodPreventer(arg)
+	peerMaxMessagesPerSecond := mainConfig.Antiflood.PeerMaxMessagesPerSecond
+	peerMaxTotalSizePerSecond := mainConfig.Antiflood.PeerMaxTotalSizePerSecond
+	floodPreventer, err := floodPreventers.NewQuotaFloodPreventer(
+		antifloodCache,
+		make([]floodPreventers.QuotaStatusHandler, 0),
+		peerMaxMessagesPerSecond,
+		peerMaxTotalSizePerSecond,
+		math.MaxUint32,
+		math.MaxUint32,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	topicFloodPreventer := disabled.NewNilTopicFloodPreventer()
-	startResettingTopicFloodPreventer(topicFloodPreventer, make([]config.TopicMaxMessagesConfig, 0), floodPreventer)
+	topicFloodPreventer := floodPreventers.NewNilTopicFloodPreventer()
+	startResettingFloodPreventers(floodPreventer, topicFloodPreventer, make([]config.TopicMaxMessagesConfig, 0))
 
-	return antiflood.NewP2PAntiflood(&disabled.PeerBlacklistHandler{}, topicFloodPreventer, floodPreventer)
+	return antiflood.NewP2PAntiflood(floodPreventer, topicFloodPreventer)
 }

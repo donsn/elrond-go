@@ -863,7 +863,7 @@ func (netMes *networkMessenger) SetPeerShardResolver(peerShardResolver p2p.PeerS
 
 // SetPeerBlackListHandler sets the peer black list handler
 //TODO decide if we continue on using setters or switch to options. Refactor if necessary
-func (netMes *networkMessenger) SetPeerBlackListHandler(handler p2p.PeerBlacklistHandler) error {
+func (netMes *networkMessenger) SetPeerBlackListHandler(handler p2p.BlacklistHandler) error {
 	return netMes.connMonitorWrapper.SetBlackListHandler(handler)
 }
 

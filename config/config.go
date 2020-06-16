@@ -226,10 +226,10 @@ type WebServerAntifloodConfig struct {
 
 // BlackListConfig will hold the p2p peer black list threshold values
 type BlackListConfig struct {
-	ThresholdNumMessagesPerInterval uint32
-	ThresholdSizePerInterval        uint64
-	NumFloodingRounds               uint32
-	PeerBanDurationInSeconds        uint32
+	ThresholdNumMessagesPerSecond uint32
+	ThresholdSizePerSecond        uint64
+	NumFloodingRounds             uint32
+	PeerBanDurationInSeconds      uint32
 }
 
 // TopicMaxMessagesConfig will hold the maximum number of messages/sec per topic value
@@ -254,11 +254,12 @@ type TxAccumulatorConfig struct {
 type AntifloodConfig struct {
 	Enabled                   bool
 	NumConcurrentResolverJobs int32
-	OutOfSpecs                FloodPreventerConfig
-	FastReacting              FloodPreventerConfig
-	SlowReacting              FloodPreventerConfig
-	PeerMaxOutput             AntifloodLimitsConfig
 	Cache                     CacheConfig
+	BlackList                 BlackListConfig
+	PeerMaxMessagesPerSecond  uint32
+	PeerMaxTotalSizePerSecond uint64
+	MaxMessagesPerSecond      uint32
+	MaxTotalSizePerSecond     uint64
 	WebServer                 WebServerAntifloodConfig
 	Topic                     TopicAntifloodConfig
 	TxAccumulator             TxAccumulatorConfig

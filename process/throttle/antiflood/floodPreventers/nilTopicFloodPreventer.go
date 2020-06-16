@@ -1,11 +1,4 @@
-package disabled
-
-import (
-	"github.com/ElrondNetwork/elrond-go/core"
-	"github.com/ElrondNetwork/elrond-go/process"
-)
-
-var _ process.TopicFloodPreventer = (*nilTopicFloodPreventer)(nil)
+package floodPreventers
 
 // nilTopicFloodPreventer is a nil (disabled) implementation of a flood preventer that will not count nor keep track
 // of the received messages on a topic
@@ -17,17 +10,13 @@ func NewNilTopicFloodPreventer() *nilTopicFloodPreventer {
 	return &nilTopicFloodPreventer{}
 }
 
-// IncreaseLoad will always return nil
-func (ntfp *nilTopicFloodPreventer) IncreaseLoad(_ core.PeerID, _ string, _ uint32) error {
-	return nil
+// Accumulate will always return true
+func (ntfp *nilTopicFloodPreventer) Accumulate(_ string, _ string) bool {
+	return true
 }
 
 // ResetForTopic does nothing
 func (ntfp *nilTopicFloodPreventer) ResetForTopic(_ string) {
-}
-
-// ResetForNotRegisteredTopics does nothing
-func (ntfp *nilTopicFloodPreventer) ResetForNotRegisteredTopics() {
 }
 
 // SetMaxMessagesForTopic does nothing

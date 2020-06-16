@@ -74,5 +74,5 @@ type NetworkComponents struct {
 	NetMessenger           p2p.Messenger
 	InputAntifloodHandler  P2PAntifloodHandler
 	OutputAntifloodHandler P2PAntifloodHandler
-	PeerBlackListHandler   process.PeerBlackListHandler
+	PeerBlackListHandler   process.BlackListHandler
 }

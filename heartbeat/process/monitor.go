@@ -258,20 +258,13 @@ func (m *Monitor) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedPe
 	if err != nil {
 		return err
 	}
-	err = m.antifloodHandler.CanProcessMessagesOnTopic(fromConnectedPeer, core.HeartbeatTopic, 1, uint64(len(message.Data())), message.SeqNo())
+	err = m.antifloodHandler.CanProcessMessageOnTopic(fromConnectedPeer, core.HeartbeatTopic)
 	if err != nil {
 		return err
 	}
 
 	hbRecv, err := m.messageHandler.CreateHeartbeatFromP2PMessage(message)
 	if err != nil {
-		//this situation is so severe that we have to black list both the message originator and the connected peer
-		//that disseminated this message.
-
-		reason := "blacklisted due to invalid heartbeat message"
-		m.antifloodHandler.BlacklistPeer(message.Peer(), reason, core.InvalidMessageBlacklistDuration)
-		m.antifloodHandler.BlacklistPeer(fromConnectedPeer, reason, core.InvalidMessageBlacklistDuration)
-
 		return err
 	}
 
@@ -281,12 +274,6 @@ func (m *Monitor) ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedPe
 	}
 
 	if !bytes.Equal(hbRecv.Pid, message.Peer().Bytes()) {
-		//this situation is so severe that we have to black list both the message originator and the connected peer
-		//that disseminated this message.
-		reason := "blacklisted due to inconsistent heartbeat message"
-		m.antifloodHandler.BlacklistPeer(message.Peer(), reason, core.InvalidMessageBlacklistDuration)
-		m.antifloodHandler.BlacklistPeer(fromConnectedPeer, reason, core.InvalidMessageBlacklistDuration)
-
 		return fmt.Errorf("%w heartbeat pid %s, message pid %s",
 			heartbeat.ErrHeartbeatPidMismatch,
 			p2p.PeerIdToShortString(core.PeerID(hbRecv.Pid)),

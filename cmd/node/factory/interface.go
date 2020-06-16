@@ -24,7 +24,7 @@ type HeaderIntegrityVerifierHandler interface {
 // p2p messages
 type P2PAntifloodHandler interface {
 	CanProcessMessage(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error
-	CanProcessMessagesOnTopic(peer core.PeerID, topic string, numMessages uint32) error
+	CanProcessMessageOnTopic(peer core.PeerID, topic string) error
 	ResetForTopic(topic string)
 	SetMaxMessagesForTopic(topic string, maxNum uint32)
 	IsInterfaceNil() bool

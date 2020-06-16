@@ -1,8 +1,13 @@
 package floodPreventers
 
-import "github.com/ElrondNetwork/elrond-go/core"
+func (qfp *quotaFloodPreventer) SetGlobalQuotaValues(maxMessages uint32, size uint64) {
+	qfp.mutOperation.Lock()
+	qfp.globalQuota.numReceivedMessages = maxMessages
+	qfp.globalQuota.sizeReceivedMessages = size
+	qfp.mutOperation.Unlock()
+}
 
-func (tfp *topicFloodPreventer) CountForTopicAndIdentifier(topic string, pid core.PeerID) uint32 {
+func (tfp *topicFloodPreventer) CountForTopicAndIdentifier(topic string, identifier string) uint32 {
 	tfp.mutTopicMaxMessages.RLock()
 	defer tfp.mutTopicMaxMessages.RUnlock()
 
@@ -10,7 +15,7 @@ func (tfp *topicFloodPreventer) CountForTopicAndIdentifier(topic string, pid cor
 	if !ok {
 		return 0
 	}
-	countForId, ok := mapForTopic[pid]
+	countForId, ok := mapForTopic[identifier]
 	if !ok {
 		return 0
 	}

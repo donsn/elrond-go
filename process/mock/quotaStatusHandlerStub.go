@@ -1,32 +1,37 @@
 package mock
 
-import "github.com/ElrondNetwork/elrond-go/core"
-
 // QuotaStatusHandlerStub -
 type QuotaStatusHandlerStub struct {
 	ResetStatisticsCalled func()
-	AddQuotaCalled        func(pid core.PeerID, numReceivedMessages uint32, sizeReceivedMessages uint64,
+	AddQuotaCalled        func(identifier string, numReceivedMessages uint32, sizeReceivedMessages uint64,
 		numProcessedMessages uint32, sizeProcessedMessages uint64)
+	SetGlobalQuotaCalled func(numReceived uint32, sizeReceived uint64, numProcessed uint32, sizeProcessed uint64)
 }
 
 // ResetStatistics -
 func (qshs *QuotaStatusHandlerStub) ResetStatistics() {
-	if qshs.ResetStatisticsCalled != nil {
-		qshs.ResetStatisticsCalled()
-	}
+	qshs.ResetStatisticsCalled()
 }
 
 // AddQuota -
 func (qshs *QuotaStatusHandlerStub) AddQuota(
-	pid core.PeerID,
+	identifier string,
 	numReceived uint32,
 	sizeReceived uint64,
 	numProcessed uint32,
 	sizeProcessed uint64,
 ) {
-	if qshs.AddQuotaCalled != nil {
-		qshs.AddQuotaCalled(pid, numReceived, sizeReceived, numProcessed, sizeProcessed)
-	}
+	qshs.AddQuotaCalled(identifier, numReceived, sizeReceived, numProcessed, sizeProcessed)
+}
+
+// SetGlobalQuota -
+func (qshs *QuotaStatusHandlerStub) SetGlobalQuota(
+	numReceived uint32,
+	sizeReceived uint64,
+	numProcessed uint32,
+	sizeProcessed uint64,
+) {
+	qshs.SetGlobalQuotaCalled(numReceived, sizeReceived, numProcessed, sizeProcessed)
 }
 
 // IsInterfaceNil -

@@ -394,7 +394,7 @@ func (messenger *Messenger) SetPeerShardResolver(_ p2p.PeerShardResolver) error 
 }
 
 // SetPeerBlackListHandler does nothing
-func (messenger *Messenger) SetPeerBlackListHandler(_ p2p.PeerBlacklistHandler) error {
+func (messenger *Messenger) SetPeerBlackListHandler(_ p2p.BlacklistHandler) error {
 	return nil
 }
 

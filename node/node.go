@@ -87,7 +87,7 @@ type Node struct {
 	uint64ByteSliceConverter      typeConverters.Uint64ByteSliceConverter
 	interceptorsContainer         process.InterceptorsContainer
 	resolversFinder               dataRetriever.ResolversFinder
-	peerBlackListHandler          process.PeerBlackListHandler
+	peerBlackListHandler          process.BlackListHandler
 	appStatusHandler              core.AppStatusHandler
 	validatorStatistics           process.ValidatorStatisticsProcessor
 	hardforkTrigger               HardforkTrigger
@@ -303,8 +303,6 @@ func (n *Node) StartConsensus() error {
 
 	n.dataPool.Headers().RegisterHandler(worker.ReceivedHeader)
 
-	// apply consensus group size on the input antiflooder just befor consensus creation topic
-	n.inputAntifloodHandler.ApplyConsensusSize(n.nodesCoordinator.ConsensusGroupSize(n.shardCoordinator.SelfId()))
 	err = n.createConsensusTopic(worker)
 	if err != nil {
 		return err
@@ -1103,7 +1101,7 @@ func (n *Node) createPidInfo(p core.PeerID) core.QueryP2PPeerInfo {
 	result := core.QueryP2PPeerInfo{
 		Pid:           p.Pretty(),
 		Addresses:     n.messenger.PeerAddresses(p),
-		IsBlacklisted: n.peerBlackListHandler.Has(p),
+		IsBlacklisted: n.peerBlackListHandler.Has(p.Pretty()),
 	}
 
 	peerInfo := n.networkShardingCollector.GetPeerInfo(p)
