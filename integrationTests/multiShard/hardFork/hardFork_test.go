@@ -112,6 +112,7 @@ func TestEHardForkWithContinuousTransactionsInMultiShardedEnvironment(t *testing
 	nodesPerShard := 1
 	numMetachainNodes := 1
 
+	_ = logger.SetLogLevel("*:DEBUG")
 	advertiser := integrationTests.CreateMessengerWithKadDht("")
 	_ = advertiser.Bootstrap()
 
@@ -209,7 +210,7 @@ func TestEHardForkWithContinuousTransactionsInMultiShardedEnvironment(t *testing
 		}
 	}()
 
-	exportStorageConfigs := hardForkExport(t, nodes, epoch)
+	exportStorageConfigs := hardForkExport(t, nodes, 1)
 	hardForkImport(t, nodes, exportStorageConfigs)
 	checkGenesisBlocksStateIsEqual(t, nodes)
 }
