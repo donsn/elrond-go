@@ -9,6 +9,7 @@ type ShardedDataStub struct {
 	RegisterHandlerCalled                  func(func(key []byte, value interface{}))
 	ShardDataStoreCalled                   func(cacheId string) (c storage.Cacher)
 	AddDataCalled                          func(key []byte, data interface{}, sizeInBytes int, cacheId string)
+	NotifyAccountNonceCalled               func(accountKey []byte, nonce uint64, cacheID string)
 	SearchFirstDataCalled                  func(key []byte) (value interface{}, ok bool)
 	RemoveDataCalled                       func(key []byte, cacheId string)
 	RemoveDataFromAllShardsCalled          func(key []byte)
@@ -34,6 +35,13 @@ func (sd *ShardedDataStub) ShardDataStore(cacheId string) (c storage.Cacher) {
 // AddData -
 func (sd *ShardedDataStub) AddData(key []byte, data interface{}, sizeInBytes int, cacheId string) {
 	sd.AddDataCalled(key, data, sizeInBytes, cacheId)
+}
+
+// NotifyAccountNonce -
+func (sd *ShardedDataStub) NotifyAccountNonce(accountKey []byte, nonce uint64, cacheID string) {
+	if sd.NotifyAccountNonceCalled != nil {
+		sd.NotifyAccountNonceCalled(accountKey, nonce, cacheID)
+	}
 }
 
 // SearchFirstData -

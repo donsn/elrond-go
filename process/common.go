@@ -21,6 +21,12 @@ import (
 
 var log = logger.GetOrCreate("process")
 
+// ValidityCheckResult is the result DTO after the intercepted data was checked
+type ValidityCheckResult struct {
+	Nonce uint64
+	Error error
+}
+
 // GetShardHeader gets the header, which is associated with the given hash, from pool or storage
 func GetShardHeader(
 	hash []byte,

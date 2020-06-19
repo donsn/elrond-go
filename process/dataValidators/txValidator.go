@@ -52,13 +52,13 @@ func NewTxValidator(
 }
 
 // CheckTxValidity will filter transactions that needs to be added in pools
-func (txv *txValidator) CheckTxValidity(interceptedTx process.TxValidatorHandler) error {
+func (txv *txValidator) CheckTxValidity(interceptedTx process.TxValidatorHandler) process.ValidityCheckResult {
 	// TODO: Refactor, extract methods.
 
 	interceptedData, ok := interceptedTx.(process.InterceptedData)
 	if ok {
 		if txv.whiteListHandler.IsWhiteListed(interceptedData) {
-			return nil
+			return process.ValidityCheckResult{}
 		}
 	}
 

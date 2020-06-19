@@ -102,6 +102,10 @@ func (sd *shardedData) AddData(key []byte, value interface{}, sizeInBytes int, c
 	}
 }
 
+// NotifyAccountNonce does nothing
+func (sd *shardedData) NotifyAccountNonce(_ []byte, _ uint64, _ string) {
+}
+
 func (sd *shardedData) getOrCreateShardStoreWithLock(cacheID string) *shardStore {
 	sd.mutShardedDataStore.Lock()
 	defer sd.mutShardedDataStore.Unlock()

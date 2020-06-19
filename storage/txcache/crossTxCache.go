@@ -73,6 +73,10 @@ func (cache *CrossTxCache) AddTx(tx *WrappedTransaction) (has, added bool) {
 	return cache.HasOrAdd(tx.TxHash, tx, int(tx.Size))
 }
 
+// NotifyAccountNonce does nothing
+func (cache *CrossTxCache) NotifyAccountNonce(_ []byte, _ uint64) {
+}
+
 // GetByTxHash gets the transaction by hash
 func (cache *CrossTxCache) GetByTxHash(txHash []byte) (*WrappedTransaction, bool) {
 	item, ok := cache.ImmunityCache.Get(txHash)

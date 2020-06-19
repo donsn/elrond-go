@@ -34,10 +34,12 @@ func NewTxInterceptorProcessor(argument *ArgTxInterceptorProcessor) (*TxIntercep
 }
 
 // Validate checks if the intercepted data can be processed
-func (txip *TxInterceptorProcessor) Validate(data process.InterceptedData, _ core.PeerID) error {
+func (txip *TxInterceptorProcessor) Validate(data process.InterceptedData, _ core.PeerID) process.ValidityCheckResult {
 	interceptedTx, ok := data.(InterceptedTransactionHandler)
 	if !ok {
-		return process.ErrWrongTypeAssertion
+		return process.ValidityCheckResult{
+			Error: process.ErrWrongTypeAssertion
+		}
 	}
 
 	return txip.txValidator.CheckTxValidity(interceptedTx)
@@ -57,6 +59,7 @@ func (txip *TxInterceptorProcessor) Save(data process.InterceptedData, _ core.Pe
 		interceptedTx.Transaction().Size(),
 		cacherIdentifier,
 	)
+	txip.shardedPool.NotifyAccountNonce(interceptedTx.SenderAddress(),
 
 	return nil
 }

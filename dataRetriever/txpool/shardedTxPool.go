@@ -194,6 +194,12 @@ func (txPool *shardedTxPool) addTx(tx *txcache.WrappedTransaction, cacheID strin
 	}
 }
 
+// NotifyAccountNonce will notify inner cache of an account's nonce
+func (txPool *shardedTxPool) NotifyAccountNonce(accountKey []byte, nonce uint64, cacheID string) {
+	shard := txPool.getOrCreateShard(cacheID)
+	shard.Cache.NotifyAccountNonce(accountKey, nonce)
+}
+
 func (txPool *shardedTxPool) onAdded(key []byte, value interface{}) {
 	txPool.mutexAddCallbacks.RLock()
 	defer txPool.mutexAddCallbacks.RUnlock()

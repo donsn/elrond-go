@@ -221,6 +221,7 @@ type ShardedDataCacherNotifier interface {
 
 	ShardDataStore(cacheId string) (c storage.Cacher)
 	AddData(key []byte, data interface{}, sizeInBytes int, cacheId string)
+	NotifyAccountNonce(accountKey []byte, nonce uint64, cacheID string)
 	SearchFirstData(key []byte) (value interface{}, ok bool)
 	RemoveData(key []byte, cacheId string)
 	RemoveSetOfDataFromPool(keys [][]byte, cacheId string)
