@@ -30,6 +30,7 @@ import (
 	"github.com/ElrondNetwork/elrond-go/vm"
 	vmFactory "github.com/ElrondNetwork/elrond-go/vm/factory"
 	vmcommon "github.com/ElrondNetwork/elrond-vm-common"
+	"github.com/ElrondNetwork/elrond-vm-common/parsers"
 )
 
 // CreateMetaGenesisBlock will create a metachain genesis block
@@ -58,6 +59,8 @@ func CreateMetaGenesisBlock(arg ArgsGenesisBlockCreator, nodesListSplitter genes
 		return nil, err
 	}
 
+	round, nonce, epoch := getGenesisBlocksRoundNonceEpoch(arg)
+
 	header := &block.MetaBlock{
 		RootHash:               rootHash,
 		PrevHash:               rootHash,
@@ -71,13 +74,16 @@ func CreateMetaGenesisBlock(arg ArgsGenesisBlockCreator, nodesListSplitter genes
 		ChainID:                []byte(arg.ChainID),
 		SoftwareVersion:        []byte(""),
 		TimeStamp:              arg.GenesisTime,
+		Round:                  round,
+		Nonce:                  nonce,
+		Epoch:                  epoch,
 	}
 	header.EpochStart.Economics = block.Economics{
-		TotalSupply:            big.NewInt(0).Set(arg.Economics.GenesisTotalSupply()),
-		TotalToDistribute:      big.NewInt(0),
-		TotalNewlyMinted:       big.NewInt(0),
-		RewardsPerBlockPerNode: big.NewInt(0),
-		NodePrice:              big.NewInt(0).Set(arg.Economics.GenesisNodePrice()),
+		TotalSupply:       big.NewInt(0).Set(arg.Economics.GenesisTotalSupply()),
+		TotalToDistribute: big.NewInt(0),
+		TotalNewlyMinted:  big.NewInt(0),
+		RewardsPerBlock:   big.NewInt(0),
+		NodePrice:         big.NewInt(0).Set(arg.Economics.GenesisNodePrice()),
 	}
 
 	validatorRootHash, err := arg.ValidatorAccounts.RootHash()
@@ -87,6 +93,11 @@ func CreateMetaGenesisBlock(arg ArgsGenesisBlockCreator, nodesListSplitter genes
 	header.SetValidatorStatsRootHash(validatorRootHash)
 
 	err = saveGenesisMetaToStorage(arg.Store, arg.Marshalizer, header)
+	if err != nil {
+		return nil, err
+	}
+
+	err = processors.vmContainer.Close()
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +136,7 @@ func createMetaGenesisAfterHardFork(
 	if err != nil {
 		return nil, err
 	}
+	hdrHandler.SetTimeStamp(arg.GenesisTime)
 
 	metaHdr, ok := hdrHandler.(*block.MetaBlock)
 	if !ok {
@@ -142,6 +154,11 @@ func createMetaGenesisAfterHardFork(
 	}
 	saveGenesisBodyToStorage(processors.txCoordinator, bodyHandler)
 
+	err = saveGenesisMetaToStorage(arg.Store, arg.Marshalizer, metaHdr)
+	if err != nil {
+		return nil, err
+	}
+
 	return metaHdr, nil
 }
 
@@ -151,7 +168,7 @@ func saveGenesisMetaToStorage(
 	genesisBlock data.HeaderHandler,
 ) error {
 
-	epochStartID := core.EpochStartIdentifier(0)
+	epochStartID := core.EpochStartIdentifier(genesisBlock.GetEpoch())
 	metaHdrStorage := storageService.GetStorer(dataRetriever.MetaBlockUnit)
 	if check.IfNil(metaHdrStorage) {
 		return process.ErrNilStorage
@@ -183,10 +200,14 @@ func createProcessorsForMetaGenesisBlock(arg ArgsGenesisBlockCreator) (*genesisP
 		BuiltInFunctions: builtInFuncs,
 	}
 
+	pubKeyVerifier, err := disabled.NewMessageSignVerifier(arg.BlockSignKeyGen)
+	if err != nil {
+		return nil, err
+	}
 	virtualMachineFactory, err := metachain.NewVMContainerFactory(
 		argsHook,
 		arg.Economics,
-		&disabled.MessageSignVerifier{},
+		pubKeyVerifier,
 		arg.GasMap,
 		arg.InitialNodesSetup,
 		arg.Hasher,
@@ -229,7 +250,7 @@ func createProcessorsForMetaGenesisBlock(arg ArgsGenesisBlockCreator) (*genesisP
 		PubkeyConverter:  arg.PubkeyConv,
 		ShardCoordinator: arg.ShardCoordinator,
 		BuiltInFuncNames: builtInFuncs.Keys(),
-		ArgumentParser:   vmcommon.NewAtArgumentParser(),
+		ArgumentParser:   parsers.NewCallArgsParser(),
 	}
 	txTypeHandler, err := coordinator.NewTxTypeHandler(argsTxTypeHandler)
 	if err != nil {
@@ -241,7 +262,7 @@ func createProcessorsForMetaGenesisBlock(arg ArgsGenesisBlockCreator) (*genesisP
 		return nil, err
 	}
 
-	argsParser := vmcommon.NewAtArgumentParser()
+	argsParser := smartContract.NewArgumentParser()
 	genesisFeeHandler := &disabled.FeeHandler{}
 	argsNewSCProcessor := smartContract.ArgsNewSmartContractProcessor{
 		VmContainer:      vmContainer,
@@ -342,6 +363,7 @@ func createProcessorsForMetaGenesisBlock(arg ArgsGenesisBlockCreator) (*genesisP
 		scrProcessor:   scProcessor,
 		rwdProcessor:   nil,
 		queryService:   queryService,
+		vmContainer:    vmContainer,
 	}, nil
 }
 
@@ -375,7 +397,7 @@ func deploySystemSmartContracts(
 
 	for _, address := range systemSCAddresses {
 		tx.SndAddr = address
-		err := txProcessor.ProcessTransaction(tx)
+		_, err := txProcessor.ProcessTransaction(tx)
 		if err != nil {
 			return err
 		}
@@ -410,7 +432,7 @@ func setStakedData(
 			Signature: nil,
 		}
 
-		err := txProcessor.ProcessTransaction(tx)
+		_, err := txProcessor.ProcessTransaction(tx)
 		if err != nil {
 			return err
 		}

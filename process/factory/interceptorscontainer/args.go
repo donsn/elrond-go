@@ -1,6 +1,7 @@
 package interceptorscontainer
 
 import (
+	"github.com/ElrondNetwork/elrond-go/core"
 	"github.com/ElrondNetwork/elrond-go/crypto"
 	"github.com/ElrondNetwork/elrond-go/data/state"
 	"github.com/ElrondNetwork/elrond-go/data/typeConverters"
@@ -27,7 +28,7 @@ type ShardInterceptorsContainerFactoryArgs struct {
 	BlockSingleSigner       crypto.SingleSigner
 	MultiSigner             crypto.MultiSigner
 	DataPool                dataRetriever.PoolsHolder
-	AddressPubkeyConverter  state.PubkeyConverter
+	AddressPubkeyConverter  core.PubkeyConverter
 	MaxTxNonceDeltaAllowed  int
 	TxFeeHandler            process.FeeHandler
 	BlackList               process.BlackListHandler
@@ -40,6 +41,7 @@ type ShardInterceptorsContainerFactoryArgs struct {
 	WhiteListerVerifiedTxs  process.WhiteListHandler
 	AntifloodHandler        process.P2PAntifloodHandler
 	NonceConverter          typeConverters.Uint64ByteSliceConverter
+	ArgumentsParser         process.ArgumentsParser
 }
 
 // MetaInterceptorsContainerFactoryArgs holds the arguments needed for MetaInterceptorsContainerFactory
@@ -54,7 +56,7 @@ type MetaInterceptorsContainerFactoryArgs struct {
 	MultiSigner             crypto.MultiSigner
 	DataPool                dataRetriever.PoolsHolder
 	Accounts                state.AccountsAdapter
-	AddressPubkeyConverter  state.PubkeyConverter
+	AddressPubkeyConverter  core.PubkeyConverter
 	SingleSigner            crypto.SingleSigner
 	BlockSingleSigner       crypto.SingleSigner
 	KeyGen                  crypto.KeyGenerator
@@ -71,4 +73,5 @@ type MetaInterceptorsContainerFactoryArgs struct {
 	WhiteListerVerifiedTxs  process.WhiteListHandler
 	AntifloodHandler        process.P2PAntifloodHandler
 	NonceConverter          typeConverters.Uint64ByteSliceConverter
+	ArgumentsParser         process.ArgumentsParser
 }

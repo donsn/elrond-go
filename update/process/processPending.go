@@ -26,7 +26,7 @@ type ArgsPendingTransactionProcessor struct {
 	TxProcessor      process.TransactionProcessor
 	RwdTxProcessor   process.RewardTransactionProcessor
 	ScrTxProcessor   process.SmartContractResultProcessor
-	PubKeyConv       state.PubkeyConverter
+	PubKeyConv       core.PubkeyConverter
 	ShardCoordinator sharding.Coordinator
 }
 
@@ -35,7 +35,7 @@ type pendingProcessor struct {
 	txProcessor      process.TransactionProcessor
 	rwdTxProcessor   process.RewardTransactionProcessor
 	scrTxProcessor   process.SmartContractResultProcessor
-	pubKeyConv       state.PubkeyConverter
+	pubKeyConv       core.PubkeyConverter
 	shardCoordinator sharding.Coordinator
 }
 
@@ -165,7 +165,7 @@ func (p *pendingProcessor) processSingleTransaction(info *txInfo) (block.Type, e
 
 	scrTx, ok := info.tx.(*smartContractResult.SmartContractResult)
 	if ok {
-		err := p.scrTxProcessor.ProcessSmartContractResult(scrTx)
+		_, err := p.scrTxProcessor.ProcessSmartContractResult(scrTx)
 		if err != nil {
 			return 0, err
 		}
@@ -174,7 +174,7 @@ func (p *pendingProcessor) processSingleTransaction(info *txInfo) (block.Type, e
 
 	tx, ok := info.tx.(*transaction.Transaction)
 	if ok {
-		err := p.txProcessor.ProcessTransaction(tx)
+		_, err := p.txProcessor.ProcessTransaction(tx)
 		if err != nil {
 			return 0, err
 		}

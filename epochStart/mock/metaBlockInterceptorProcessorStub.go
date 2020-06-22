@@ -3,8 +3,8 @@ package mock
 import (
 	"context"
 
+	"github.com/ElrondNetwork/elrond-go/core"
 	"github.com/ElrondNetwork/elrond-go/data/block"
-	"github.com/ElrondNetwork/elrond-go/p2p"
 	"github.com/ElrondNetwork/elrond-go/process"
 )
 
@@ -14,17 +14,21 @@ type MetaBlockInterceptorProcessorStub struct {
 }
 
 // Validate -
-func (m *MetaBlockInterceptorProcessorStub) Validate(data process.InterceptedData, fromConnectedPeer p2p.PeerID) error {
+func (m *MetaBlockInterceptorProcessorStub) Validate(_ process.InterceptedData, _ core.PeerID) error {
 	return nil
 }
 
 // Save -
-func (m *MetaBlockInterceptorProcessorStub) Save(data process.InterceptedData, fromConnectedPeer p2p.PeerID) error {
+func (m *MetaBlockInterceptorProcessorStub) Save(_ process.InterceptedData, _ core.PeerID, _ string) error {
 	return nil
 }
 
+// RegisterHandler -
+func (m *MetaBlockInterceptorProcessorStub) RegisterHandler(_ func(topic string, hash []byte, data interface{})) {
+}
+
 // SignalEndOfProcessing -
-func (m *MetaBlockInterceptorProcessorStub) SignalEndOfProcessing(data []process.InterceptedData) {
+func (m *MetaBlockInterceptorProcessorStub) SignalEndOfProcessing(_ []process.InterceptedData) {
 }
 
 // IsInterfaceNil -

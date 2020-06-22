@@ -35,6 +35,7 @@ type SystemEI interface {
 	Transfer(destination []byte, sender []byte, value *big.Int, input []byte, gasLimit uint64) error
 	GetBalance(addr []byte) *big.Int
 	SetStorage(key []byte, value []byte)
+	AddReturnMessage(msg string)
 	GetStorage(key []byte) []byte
 	Finish(value []byte)
 	UseGas(gasToConsume uint64) error
@@ -81,9 +82,7 @@ type ValidatorSettingsHandler interface {
 
 // ArgumentsParser defines the functionality to parse transaction data into arguments and code for smart contracts
 type ArgumentsParser interface {
-	GetFunctionArguments() ([][]byte, error)
-	GetFunction() (string, error)
-	ParseData(data string) error
+	ParseData(data string) (string, [][]byte, error)
 	IsInterfaceNil() bool
 }
 

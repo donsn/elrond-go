@@ -51,7 +51,7 @@ func (cache *TxCache) isCapacityExceeded() bool {
 
 func (cache *TxCache) areThereTooManyBytes() bool {
 	numBytes := cache.NumBytes()
-	tooManyBytes := numBytes > uint64(cache.config.NumBytesThreshold)
+	tooManyBytes := numBytes > int(cache.config.NumBytesThreshold)
 	return tooManyBytes
 }
 
@@ -87,7 +87,7 @@ func (cache *TxCache) evictSendersWhile(shouldContinue func() bool) (step uint32
 
 	snapshot := cache.evictionSnapshotOfSenders
 	snapshotLength := uint32(len(snapshot))
-	batchSize := cache.config.NumSendersToEvictInOneStep
+	batchSize := cache.config.NumSendersToPreemptivelyEvict
 	batchStart := uint32(0)
 
 	for step = 0; shouldContinue(); step++ {

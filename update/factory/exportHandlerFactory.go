@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ElrondNetwork/elrond-go/config"
+	"github.com/ElrondNetwork/elrond-go/core"
 	"github.com/ElrondNetwork/elrond-go/core/check"
 	"github.com/ElrondNetwork/elrond-go/crypto"
 	"github.com/ElrondNetwork/elrond-go/data/state"
@@ -54,15 +55,15 @@ type ArgsExporter struct {
 	MultiSigner              crypto.MultiSigner
 	NodesCoordinator         sharding.NodesCoordinator
 	SingleSigner             crypto.SingleSigner
-	AddressPubkeyConverter   state.PubkeyConverter
+	AddressPubkeyConverter   core.PubkeyConverter
 	BlockKeyGen              crypto.KeyGenerator
 	KeyGen                   crypto.KeyGenerator
 	BlockSigner              crypto.SingleSigner
 	HeaderSigVerifier        process.InterceptedHeaderSigVerifier
 	HeaderIntegrityVerifier  process.InterceptedHeaderIntegrityVerifier
 	ValidityAttester         process.ValidityAttester
-	InputAntifloodHandler    dataRetriever.P2PAntifloodHandler
-	OutputAntifloodHandler   dataRetriever.P2PAntifloodHandler
+	InputAntifloodHandler    process.P2PAntifloodHandler
+	OutputAntifloodHandler   process.P2PAntifloodHandler
 }
 
 type exportHandlerFactory struct {
@@ -93,13 +94,13 @@ type exportHandlerFactory struct {
 	blockKeyGen              crypto.KeyGenerator
 	keyGen                   crypto.KeyGenerator
 	blockSigner              crypto.SingleSigner
-	addressPubkeyConverter   state.PubkeyConverter
+	addressPubkeyConverter   core.PubkeyConverter
 	headerSigVerifier        process.InterceptedHeaderSigVerifier
 	headerIntegrityVerifier  process.InterceptedHeaderIntegrityVerifier
 	validityAttester         process.ValidityAttester
 	resolverContainer        dataRetriever.ResolversContainer
-	inputAntifloodHandler    dataRetriever.P2PAntifloodHandler
-	outputAntifloodHandler   dataRetriever.P2PAntifloodHandler
+	inputAntifloodHandler    process.P2PAntifloodHandler
+	outputAntifloodHandler   process.P2PAntifloodHandler
 }
 
 // NewExportHandlerFactory creates an exporter factory
@@ -309,12 +310,13 @@ func (e *exportHandlerFactory) Create() (update.ExportHandler, error) {
 	}
 
 	argsNewHeadersSync := sync.ArgsNewHeadersSyncHandler{
-		StorageService:  e.storageService,
-		Cache:           e.dataPool.Headers(),
-		Marshalizer:     e.marshalizer,
-		EpochHandler:    epochHandler,
-		RequestHandler:  e.requestHandler,
-		Uint64Converter: e.uint64Converter,
+		StorageService:   e.storageService,
+		Cache:            e.dataPool.Headers(),
+		Marshalizer:      e.marshalizer,
+		EpochHandler:     epochHandler,
+		RequestHandler:   e.requestHandler,
+		Uint64Converter:  e.uint64Converter,
+		ShardCoordinator: e.shardCoordinator,
 	}
 	epochStartHeadersSyncer, err := sync.NewHeadersSyncHandler(argsNewHeadersSync)
 	if err != nil {

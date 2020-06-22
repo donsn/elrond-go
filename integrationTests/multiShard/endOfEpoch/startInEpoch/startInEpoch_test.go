@@ -8,25 +8,21 @@ import (
 
 	"github.com/ElrondNetwork/elrond-go/config"
 	"github.com/ElrondNetwork/elrond-go/core"
-	"github.com/ElrondNetwork/elrond-go/data"
-	"github.com/ElrondNetwork/elrond-go/data/state"
-	triesFactory "github.com/ElrondNetwork/elrond-go/data/trie/factory"
 	"github.com/ElrondNetwork/elrond-go/data/typeConverters/uint64ByteSlice"
 	"github.com/ElrondNetwork/elrond-go/dataRetriever"
 	"github.com/ElrondNetwork/elrond-go/epochStart/bootstrap"
-	"github.com/ElrondNetwork/elrond-go/hashing"
 	"github.com/ElrondNetwork/elrond-go/integrationTests"
 	"github.com/ElrondNetwork/elrond-go/integrationTests/mock"
 	"github.com/ElrondNetwork/elrond-go/integrationTests/multiShard/endOfEpoch"
-	"github.com/ElrondNetwork/elrond-go/marshal"
 	"github.com/ElrondNetwork/elrond-go/process"
 	"github.com/ElrondNetwork/elrond-go/process/block/bootstrapStorage"
 	"github.com/ElrondNetwork/elrond-go/process/block/pendingMb"
+	"github.com/ElrondNetwork/elrond-go/process/smartContract"
 	"github.com/ElrondNetwork/elrond-go/process/sync/storageBootstrap"
 	"github.com/ElrondNetwork/elrond-go/sharding"
-	"github.com/ElrondNetwork/elrond-go/storage"
 	"github.com/ElrondNetwork/elrond-go/storage/factory"
 	"github.com/ElrondNetwork/elrond-go/storage/storageUnit"
+	"github.com/ElrondNetwork/elrond-go/testscommon"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -177,8 +173,6 @@ func testNodeStartsInEpoch(t *testing.T, shardID uint32, expectedHighestRound ui
 	nodeToJoinLate.Messenger = messenger
 
 	rounder := &mock.RounderMock{IndexField: int64(round)}
-
-	trieStorageManager, triesHolder, _ := createTries(getGeneralConfig(), integrationTests.TestMarshalizer, integrationTests.TestHasher, 0, &mock.PathManagerStub{})
 	argsBootstrapHandler := bootstrap.ArgsEpochStartBootstrap{
 		PublicKey:                  nodeToJoinLate.NodeKeys.Pk,
 		Marshalizer:                integrationTests.TestMarshalizer,
@@ -202,12 +196,13 @@ func testNodeStartsInEpoch(t *testing.T, shardID uint32, expectedHighestRound ui
 		DefaultShardString:         "test_shard",
 		Rater:                      &mock.RaterMock{},
 		DestinationShardAsObserver: shardID,
-		TrieContainer:              triesHolder,
-		TrieStorageManagers:        trieStorageManager,
 		Uint64Converter:            uint64Converter,
 		NodeShuffler:               &mock.NodeShufflerMock{},
 		Rounder:                    rounder,
 		AddressPubkeyConverter:     integrationTests.TestAddressPubkeyConverter,
+		ArgumentsParser:            smartContract.NewArgumentParser(),
+		StatusHandler:              &mock.AppStatusHandlerStub{},
+		ImportStartHandler:         &mock.ImportStartHandlerStub{},
 	}
 	epochStartBootstrap, err := bootstrap.NewEpochStartBootstrap(argsBootstrapHandler)
 	assert.Nil(t, err)
@@ -252,6 +247,7 @@ func testNodeStartsInEpoch(t *testing.T, shardID uint32, expectedHighestRound ui
 		BlockTracker: &mock.BlockTrackerStub{
 			RestoreToGenesisCalled: func() {},
 		},
+		ChainID: string(integrationTests.ChainID),
 	}
 
 	bootstrapper, err := getBootstrapper(shardID, argsBaseBootstrapper)
@@ -279,318 +275,14 @@ func getBootstrapper(shardID uint32, baseArgs storageBootstrap.ArgsBaseStorageBo
 	return storageBootstrap.NewShardStorageBootstrapper(bootstrapperArgs)
 }
 
-func createTries(
-	config config.Config,
-	marshalizer marshal.Marshalizer,
-	hasher hashing.Hasher,
-	shardId uint32,
-	pathManager storage.PathManagerHandler,
-) (map[string]data.StorageManager, state.TriesHolder, error) {
-
-	trieContainer := state.NewDataTriesHolder()
-	trieFactoryArgs := triesFactory.TrieFactoryArgs{
-		EvictionWaitingListCfg:   config.EvictionWaitingList,
-		SnapshotDbCfg:            config.TrieSnapshotDB,
-		Marshalizer:              marshalizer,
-		Hasher:                   hasher,
-		PathManager:              pathManager,
-		TrieStorageManagerConfig: config.TrieStorageManagerConfig,
-	}
-	trieFactory, err := triesFactory.NewTrieFactory(trieFactoryArgs)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	trieStorageManagers := make(map[string]data.StorageManager)
-	userStorageManager, userAccountTrie, err := trieFactory.Create(
-		config.AccountsTrieStorage,
-		core.GetShardIdString(shardId),
-		config.StateTriesConfig.AccountsStatePruningEnabled,
-		config.StateTriesConfig.MaxStateTrieLevelInMemory,
-	)
-	if err != nil {
-		return nil, nil, err
-	}
-	trieContainer.Put([]byte(triesFactory.UserAccountTrie), userAccountTrie)
-	trieStorageManagers[triesFactory.UserAccountTrie] = userStorageManager
-
-	peerStorageManager, peerAccountsTrie, err := trieFactory.Create(
-		config.PeerAccountsTrieStorage,
-		core.GetShardIdString(shardId),
-		config.StateTriesConfig.PeerStatePruningEnabled,
-		config.StateTriesConfig.MaxPeerTrieLevelInMemory,
-	)
-	if err != nil {
-		return nil, nil, err
-	}
-	trieContainer.Put([]byte(triesFactory.PeerAccountTrie), peerAccountsTrie)
-	trieStorageManagers[triesFactory.PeerAccountTrie] = peerStorageManager
-
-	return trieStorageManagers, trieContainer, nil
-}
-
-// TODO: We should remove this type of configs hidden in tests
 func getGeneralConfig() config.Config {
-	return config.Config{
-		GeneralSettings: config.GeneralSettingsConfig{
-			StartInEpochEnabled: true,
-		},
-		EpochStartConfig: config.EpochStartConfig{
-			MinRoundsBetweenEpochs:            5,
-			RoundsPerEpoch:                    10,
-			MinNumConnectedPeersToStart:       2,
-			MinNumOfPeersToConsiderBlockValid: 2,
-		},
-		WhiteListPool: config.CacheConfig{
-			Size:   10000,
-			Type:   "LRU",
-			Shards: 1,
-		},
-		WhiteListerVerifiedTxs: config.CacheConfig{
-			Size:   10000,
-			Type:   "LRU",
-			Shards: 1,
-		},
-		StoragePruning: config.StoragePruningConfig{
-			Enabled:             false,
-			FullArchive:         true,
-			NumEpochsToKeep:     3,
-			NumActivePersisters: 3,
-		},
-		EvictionWaitingList: config.EvictionWaitingListConfig{
-			Size: 100,
-			DB: config.DBConfig{
-				FilePath:          "EvictionWaitingList",
-				Type:              "MemoryDB",
-				BatchDelaySeconds: 30,
-				MaxBatchSize:      6,
-				MaxOpenFiles:      10,
-			},
-		},
-		TrieSnapshotDB: config.DBConfig{
-			FilePath:          "TrieSnapshot",
-			Type:              "MemoryDB",
-			BatchDelaySeconds: 30,
-			MaxBatchSize:      6,
-			MaxOpenFiles:      10,
-		},
-		AccountsTrieStorage: config.StorageConfig{
-			Cache: config.CacheConfig{
-				Size: 10000, Type: "LRU", Shards: 1,
-			},
-			DB: config.DBConfig{
-				FilePath:          "AccountsTrie/MainDB",
-				Type:              "MemoryDB",
-				BatchDelaySeconds: 30,
-				MaxBatchSize:      6,
-				MaxOpenFiles:      10,
-			},
-		},
-		PeerAccountsTrieStorage: config.StorageConfig{
-			Cache: config.CacheConfig{
-				Size: 10000, Type: "LRU", Shards: 1,
-			},
-			DB: config.DBConfig{
-				FilePath:          "PeerAccountsTrie/MainDB",
-				Type:              "MemoryDB",
-				BatchDelaySeconds: 30,
-				MaxBatchSize:      6,
-				MaxOpenFiles:      10,
-			},
-		},
-		StateTriesConfig: config.StateTriesConfig{
-			CheckpointRoundsModulus:     100,
-			AccountsStatePruningEnabled: false,
-			PeerStatePruningEnabled:     false,
-			MaxStateTrieLevelInMemory:   5,
-			MaxPeerTrieLevelInMemory:    5,
-		},
-		TrieStorageManagerConfig: config.TrieStorageManagerConfig{
-			PruningBufferLen:   1000,
-			SnapshotsBufferLen: 10,
-			MaxSnapshots:       2,
-		},
-		TxDataPool: config.CacheConfig{
-			Size: 10000, Type: "LRU", Shards: 1,
-		},
-		UnsignedTransactionDataPool: config.CacheConfig{
-			Size: 10000, Type: "LRU", Shards: 1,
-		},
-		RewardTransactionDataPool: config.CacheConfig{
-			Size: 10000, Type: "LRU", Shards: 1,
-		},
-		HeadersPoolConfig: config.HeadersPoolConfig{
-			MaxHeadersPerShard:            100,
-			NumElementsToRemoveOnEviction: 1,
-		},
-		TxBlockBodyDataPool: config.CacheConfig{
-			Size: 10000, Type: "LRU", Shards: 1,
-		},
-		PeerBlockBodyDataPool: config.CacheConfig{
-			Size: 10000, Type: "LRU", Shards: 1,
-		},
-		TrieNodesDataPool: config.CacheConfig{
-			Size: 10000, Type: "LRU", Shards: 1,
-		},
-		TxStorage: config.StorageConfig{
-			Cache: config.CacheConfig{
-				Size: 10000, Type: "LRU", Shards: 1,
-			},
-			DB: config.DBConfig{
-				FilePath:          "Transactions",
-				Type:              "MemoryDB",
-				BatchDelaySeconds: 30,
-				MaxBatchSize:      6,
-				MaxOpenFiles:      10,
-			},
-		},
-		MiniBlocksStorage: config.StorageConfig{
-			Cache: config.CacheConfig{
-				Size: 10000, Type: "LRU", Shards: 1,
-			},
-			DB: config.DBConfig{
-				FilePath:          "MiniBlocks",
-				Type:              string(storageUnit.LvlDBSerial),
-				BatchDelaySeconds: 30,
-				MaxBatchSize:      6,
-				MaxOpenFiles:      10,
-			},
-		},
-		ShardHdrNonceHashStorage: config.StorageConfig{
-			Cache: config.CacheConfig{
-				Size: 10000, Type: "LRU", Shards: 1,
-			},
-			DB: config.DBConfig{
-				FilePath:          "ShardHdrHashNonce",
-				Type:              string(storageUnit.LvlDBSerial),
-				BatchDelaySeconds: 30,
-				MaxBatchSize:      6,
-				MaxOpenFiles:      10,
-			},
-		},
-		MetaBlockStorage: config.StorageConfig{
-			Cache: config.CacheConfig{
-				Size: 10000, Type: "LRU", Shards: 1,
-			},
-			DB: config.DBConfig{
-				FilePath:          "MetaBlock",
-				Type:              string(storageUnit.LvlDBSerial),
-				BatchDelaySeconds: 30,
-				MaxBatchSize:      6,
-				MaxOpenFiles:      10,
-			},
-		},
-		MetaHdrNonceHashStorage: config.StorageConfig{
-			Cache: config.CacheConfig{
-				Size: 10000, Type: "LRU", Shards: 1,
-			},
-			DB: config.DBConfig{
-				FilePath:          "MetaHdrHashNonce",
-				Type:              string(storageUnit.LvlDBSerial),
-				BatchDelaySeconds: 30,
-				MaxBatchSize:      6,
-				MaxOpenFiles:      10,
-			},
-		},
-		UnsignedTransactionStorage: config.StorageConfig{
-			Cache: config.CacheConfig{
-				Size: 10000, Type: "LRU", Shards: 1,
-			},
-			DB: config.DBConfig{
-				FilePath:          "UnsignedTransactions",
-				Type:              "MemoryDB",
-				BatchDelaySeconds: 30,
-				MaxBatchSize:      6,
-				MaxOpenFiles:      10,
-			},
-		},
-		RewardTxStorage: config.StorageConfig{
-			Cache: config.CacheConfig{
-				Size: 10000, Type: "LRU", Shards: 1,
-			},
-			DB: config.DBConfig{
-				FilePath:          "RewardTransactions",
-				Type:              "MemoryDB",
-				BatchDelaySeconds: 30,
-				MaxBatchSize:      6,
-				MaxOpenFiles:      10,
-			},
-		},
-		BlockHeaderStorage: config.StorageConfig{
-			Cache: config.CacheConfig{
-				Size: 10000, Type: "LRU", Shards: 1,
-			},
-			DB: config.DBConfig{
-				FilePath:          "BlockHeaders",
-				Type:              string(storageUnit.LvlDBSerial),
-				BatchDelaySeconds: 30,
-				MaxBatchSize:      6,
-				MaxOpenFiles:      10,
-			},
-		},
-		Heartbeat: config.HeartbeatConfig{
-			HeartbeatStorage: config.StorageConfig{
-				Cache: config.CacheConfig{
-					Size: 10000, Type: "LRU", Shards: 1,
-				},
-				DB: config.DBConfig{
-					FilePath:          "HeartbeatStorage",
-					Type:              "MemoryDB",
-					BatchDelaySeconds: 30,
-					MaxBatchSize:      6,
-					MaxOpenFiles:      10,
-				},
-			},
-		},
-		StatusMetricsStorage: config.StorageConfig{
-			Cache: config.CacheConfig{
-				Size: 10000, Type: "LRU", Shards: 1,
-			},
-			DB: config.DBConfig{
-				FilePath:          "StatusMetricsStorageDB",
-				Type:              "MemoryDB",
-				BatchDelaySeconds: 30,
-				MaxBatchSize:      6,
-				MaxOpenFiles:      10,
-			},
-		},
-		PeerBlockBodyStorage: config.StorageConfig{
-			Cache: config.CacheConfig{
-				Size: 10000, Type: "LRU", Shards: 1,
-			},
-			DB: config.DBConfig{
-				FilePath:          "PeerBlocks",
-				Type:              string(storageUnit.LvlDBSerial),
-				BatchDelaySeconds: 30,
-				MaxBatchSize:      6,
-				MaxOpenFiles:      10,
-			},
-		},
-		BootstrapStorage: config.StorageConfig{
-			Cache: config.CacheConfig{
-				Size: 10000, Type: "LRU", Shards: 1,
-			},
-			DB: config.DBConfig{
-				FilePath:          "BootstrapData",
-				Type:              string(storageUnit.LvlDBSerial),
-				BatchDelaySeconds: 1,
-				MaxBatchSize:      6,
-				MaxOpenFiles:      10,
-			},
-		},
-		TxLogsStorage: config.StorageConfig{
-			Cache: config.CacheConfig{
-				Type:   "LRU",
-				Size:   1000,
-				Shards: 1,
-			},
-			DB: config.DBConfig{
-				FilePath:          "Logs",
-				Type:              string(storageUnit.LvlDBSerial),
-				BatchDelaySeconds: 2,
-				MaxBatchSize:      100,
-				MaxOpenFiles:      10,
-			},
-		},
-	}
+	generalConfig := testscommon.GetGeneralConfig()
+	generalConfig.MiniBlocksStorage.DB.Type = string(storageUnit.LvlDBSerial)
+	generalConfig.ShardHdrNonceHashStorage.DB.Type = string(storageUnit.LvlDBSerial)
+	generalConfig.MetaBlockStorage.DB.Type = string(storageUnit.LvlDBSerial)
+	generalConfig.MetaHdrNonceHashStorage.DB.Type = string(storageUnit.LvlDBSerial)
+	generalConfig.BlockHeaderStorage.DB.Type = string(storageUnit.LvlDBSerial)
+	generalConfig.BootstrapStorage.DB.Type = string(storageUnit.LvlDBSerial)
+
+	return generalConfig
 }

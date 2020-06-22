@@ -6,24 +6,17 @@ import (
 	"github.com/ElrondNetwork/elrond-go/data"
 )
 
-const estimatedSizeOfBoundedTxFields = uint64(128)
-
 // WrappedTransaction contains a transaction, its hash and extra information
 type WrappedTransaction struct {
 	Tx              data.TransactionHandler
 	TxHash          []byte
 	SenderShardID   uint32
 	ReceiverShardID uint32
+	Size            int64
 }
 
 func (wrappedTx *WrappedTransaction) sameAs(another *WrappedTransaction) bool {
 	return bytes.Equal(wrappedTx.TxHash, another.TxHash)
-}
-
-// estimateTxSize returns an approximation
-func estimateTxSize(tx *WrappedTransaction) uint64 {
-	sizeOfData := uint64(len(tx.Tx.GetData()))
-	return estimatedSizeOfBoundedTxFields + sizeOfData
 }
 
 // estimateTxGas returns an approximation for the necessary computation units (gas units)

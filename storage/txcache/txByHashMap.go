@@ -26,7 +26,7 @@ func (txMap *txByHashMap) addTx(tx *WrappedTransaction) bool {
 	added := txMap.backingMap.SetIfAbsent(string(tx.TxHash), tx)
 	if added {
 		txMap.counter.Increment()
-		txMap.numBytes.Add(int64(estimateTxSize(tx)))
+		txMap.numBytes.Add(tx.Size)
 	}
 
 	return added
@@ -34,19 +34,21 @@ func (txMap *txByHashMap) addTx(tx *WrappedTransaction) bool {
 
 // removeTx removes a transaction from the map
 func (txMap *txByHashMap) removeTx(txHash string) (*WrappedTransaction, bool) {
-	tx, ok := txMap.getTx(txHash)
+	item, removed := txMap.backingMap.Remove(txHash)
+	if !removed {
+		return nil, false
+	}
+
+	tx, ok := item.(*WrappedTransaction)
 	if !ok {
 		return nil, false
 	}
 
-	// TODO / bugfix: when we concurrently try to remove the same transaction,
-	// we might end up decrementing the counters twice.
-	// Possible solution: use an "onItemRemoved" callback in the "backingMap"
-	// to decrement the counters.
+	if removed {
+		txMap.counter.Decrement()
+		txMap.numBytes.Subtract(tx.Size)
+	}
 
-	txMap.backingMap.Remove(txHash)
-	txMap.counter.Decrement()
-	txMap.numBytes.Subtract(int64(estimateTxSize(tx)))
 	return tx, true
 }
 
@@ -74,9 +76,6 @@ func (txMap *txByHashMap) RemoveTxsBulk(txHashes [][]byte) uint32 {
 
 	return numRemoved
 }
-
-// ForEachTransaction is an iterator callback
-type ForEachTransaction func(txHash []byte, value *WrappedTransaction)
 
 // forEach iterates over the senders
 func (txMap *txByHashMap) forEach(function ForEachTransaction) {

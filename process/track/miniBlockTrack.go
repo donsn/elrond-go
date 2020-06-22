@@ -1,6 +1,7 @@
 package track
 
 import (
+	"github.com/ElrondNetwork/elrond-go/core"
 	"github.com/ElrondNetwork/elrond-go/core/check"
 	"github.com/ElrondNetwork/elrond-go/data/block"
 	"github.com/ElrondNetwork/elrond-go/dataRetriever"
@@ -50,7 +51,7 @@ func NewMiniBlockTrack(
 		shardCoordinator:         shardCoordinator,
 	}
 
-	mbt.miniBlocksPool.RegisterHandler(mbt.receivedMiniBlock)
+	mbt.miniBlocksPool.RegisterHandler(mbt.receivedMiniBlock, core.UniqueIdentifier())
 
 	return &mbt, nil
 }
@@ -82,10 +83,8 @@ func (mbt *miniBlockTrack) receivedMiniBlock(key []byte, value interface{}) {
 		return
 	}
 
-	//TODO: Replace the next lines with the real call which notifies shard cacher about transactions which should be
-	// protected for eviction
-	//strCache := process.ShardCacherIdentifier(miniBlock.SenderShardID, miniBlock.ReceiverShardID)
-	//transactionPool.ProtectSetOfDataForEviction(miniBlock.TxHashes, strCache)
+	strCache := process.ShardCacherIdentifier(miniBlock.SenderShardID, miniBlock.ReceiverShardID)
+	transactionPool.ImmunizeSetOfDataAgainstEviction(miniBlock.TxHashes, strCache)
 }
 
 func (mbt *miniBlockTrack) getTransactionPool(mbType block.Type) dataRetriever.ShardedDataCacherNotifier {

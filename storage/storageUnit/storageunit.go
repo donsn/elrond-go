@@ -2,6 +2,7 @@ package storageUnit
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"sync"
@@ -36,6 +37,7 @@ type HasherType string
 // LRUCache is currently the only supported Cache type
 const (
 	LRUCache         CacheType = "LRU"
+	SizeLRUCache     CacheType = "SizeLRU"
 	FIFOShardedCache CacheType = "FIFOSharded"
 )
 
@@ -58,6 +60,8 @@ const (
 	Fnv HasherType = "Fnv"
 )
 
+const minimumSizeForLRUCache = 1024
+
 // UnitConfig holds the configurable elements of the storage unit
 type UnitConfig struct {
 	CacheConf CacheConfig
@@ -67,12 +71,23 @@ type UnitConfig struct {
 
 // CacheConfig holds the configurable elements of a cache
 type CacheConfig struct {
+	Name                 string
 	Type                 CacheType
-	SizeInBytes          uint32
+	SizeInBytes          uint64
 	SizeInBytesPerSender uint32
-	Size                 uint32
+	Capacity             uint32
 	SizePerSender        uint32
 	Shards               uint32
+}
+
+// String returns a readable representation of the object
+func (config *CacheConfig) String() string {
+	bytes, err := json.Marshal(config)
+	if err != nil {
+		log.Error("CacheConfig.String()", "err", err)
+	}
+
+	return string(bytes)
 }
 
 // DBConfig holds the configurable elements of a database
@@ -104,7 +119,7 @@ func (u *Unit) Put(key, data []byte) error {
 	u.lock.Lock()
 	defer u.lock.Unlock()
 
-	u.cacher.Put(key, data)
+	u.cacher.Put(key, data, len(data))
 
 	err := u.persister.Put(key, data)
 	if err != nil {
@@ -146,13 +161,17 @@ func (u *Unit) Get(key []byte) ([]byte, error) {
 		// search it in second persistence medium
 		if u.bloomFilter == nil || u.bloomFilter.MayContain(key) {
 			v, err = u.persister.Get(key)
-
 			if err != nil {
 				return nil, err
 			}
 
+			buff, okAssertion := v.([]byte)
+			if !okAssertion {
+				return nil, fmt.Errorf("key: %s is not a byte slice", base64.StdEncoding.EncodeToString(key))
+			}
+
 			// if found in persistence unit, add it in cache
-			u.cacher.Put(key, v)
+			u.cacher.Put(key, v, len(buff))
 		} else {
 			return nil, fmt.Errorf("key: %s not found", base64.StdEncoding.EncodeToString(key))
 		}
@@ -293,11 +312,11 @@ func NewStorageUnitFromConf(cacheConf CacheConfig, dbConf DBConfig, bloomFilterC
 		}
 	}()
 
-	if dbConf.MaxBatchSize > int(cacheConf.Size) {
+	if dbConf.MaxBatchSize > int(cacheConf.Capacity) {
 		return nil, storage.ErrCacheSizeIsLowerThanBatchSize
 	}
 
-	cache, err = NewCache(cacheConf.Type, cacheConf.Size, cacheConf.Shards)
+	cache, err = NewCache(cacheConf)
 	if err != nil {
 		return nil, err
 	}
@@ -326,17 +345,37 @@ func NewStorageUnitFromConf(cacheConf CacheConfig, dbConf DBConfig, bloomFilterC
 	return NewStorageUnitWithBloomFilter(cache, db, bf)
 }
 
-//NewCache creates a new cache from a cache config
-//TODO: add a cacher factory or a cacheConfig param instead
-func NewCache(cacheType CacheType, size uint32, shards uint32) (storage.Cacher, error) {
+// NewCache creates a new cache from a cache config
+func NewCache(config CacheConfig) (storage.Cacher, error) {
+	storage.MonitorNewCache(config.Name, config.SizeInBytes)
+
+	cacheType := config.Type
+	capacity := config.Capacity
+	shards := config.Shards
+	sizeInBytes := config.SizeInBytes
+
 	var cacher storage.Cacher
 	var err error
 
 	switch cacheType {
 	case LRUCache:
-		cacher, err = lrucache.NewCache(int(size))
+		if sizeInBytes != 0 {
+			return nil, storage.ErrLRUCacheWithProvidedSize
+		}
+
+		cacher, err = lrucache.NewCache(int(capacity))
+	case SizeLRUCache:
+		if sizeInBytes < minimumSizeForLRUCache {
+			return nil, fmt.Errorf("%w, provided %d, minimum %d",
+				storage.ErrLRUCacheInvalidSize,
+				sizeInBytes,
+				minimumSizeForLRUCache,
+			)
+		}
+
+		cacher, err = lrucache.NewCacheWithSizeInBytes(int(capacity), int64(sizeInBytes))
 	case FIFOShardedCache:
-		cacher, err = fifocache.NewShardedCache(int(size), int(shards))
+		cacher, err = fifocache.NewShardedCache(int(capacity), int(shards))
 		if err != nil {
 			return nil, err
 		}

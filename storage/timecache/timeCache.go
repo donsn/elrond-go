@@ -5,12 +5,10 @@ import (
 	"time"
 
 	"github.com/ElrondNetwork/elrond-go/dataRetriever"
-	"github.com/ElrondNetwork/elrond-go/p2p"
 	"github.com/ElrondNetwork/elrond-go/storage"
 )
 
 var _ dataRetriever.RequestedItemsHandler = (*TimeCache)(nil)
-var _ p2p.BlacklistHandler = (*TimeCache)(nil)
 
 type span struct {
 	timestamp time.Time
@@ -22,16 +20,14 @@ type span struct {
 // This data structure is concurrent safe.
 type TimeCache struct {
 	mut         sync.Mutex
-	data        map[string]span
-	keys        []string
+	data        map[string]*span
 	defaultSpan time.Duration
 }
 
 // NewTimeCache creates a new time cache data structure instance
 func NewTimeCache(defaultSpan time.Duration) *TimeCache {
 	return &TimeCache{
-		data:        make(map[string]span),
-		keys:        make([]string, 0),
+		data:        make(map[string]*span),
 		defaultSpan: defaultSpan,
 	}
 }
@@ -50,16 +46,10 @@ func (tc *TimeCache) add(key string, duration time.Duration) error {
 	tc.mut.Lock()
 	defer tc.mut.Unlock()
 
-	_, ok := tc.data[key]
-	if ok {
-		return storage.ErrDuplicateKeyToAdd
-	}
-
-	tc.data[key] = span{
+	tc.data[key] = &span{
 		timestamp: time.Now(),
 		span:      duration,
 	}
-	tc.keys = append(tc.keys, key)
 	return nil
 }
 
@@ -69,31 +59,44 @@ func (tc *TimeCache) AddWithSpan(key string, duration time.Duration) error {
 	return tc.add(key, duration)
 }
 
+// Update will add the key and provided duration if not exists
+// If the record exists, will update the duration if the provided duration is larger than existing
+// Also, it will reset the contained timestamp to time.Now
+func (tc *TimeCache) Update(key string, duration time.Duration) error {
+	if len(key) == 0 {
+		return storage.ErrEmptyKey
+	}
+
+	tc.mut.Lock()
+	defer tc.mut.Unlock()
+
+	existing, found := tc.data[key]
+	if found {
+		if existing.span < duration {
+			existing.span = duration
+		}
+		existing.timestamp = time.Now()
+
+		return nil
+	}
+
+	tc.data[key] = &span{
+		timestamp: time.Now(),
+		span:      duration,
+	}
+	return nil
+}
+
 // Sweep starts from the oldest element and will search each element if it is still valid to be kept. Sweep ends when
 // it finds an element that is still valid
 func (tc *TimeCache) Sweep() {
 	tc.mut.Lock()
 	defer tc.mut.Unlock()
 
-	for {
-		if len(tc.keys) == 0 {
-			return
-		}
-
-		firstElement := tc.keys[0]
-		t, ok := tc.data[firstElement]
-		if !ok {
-			//inconsistency handled
-			tc.keys = tc.keys[1:]
-			continue
-		}
-
-		isOldElement := time.Since(t.timestamp) > t.span
+	for key, element := range tc.data {
+		isOldElement := time.Since(element.timestamp) > element.span
 		if isOldElement {
-			tc.keys = tc.keys[1:]
-			delete(tc.data, firstElement)
-		} else {
-			return
+			delete(tc.data, key)
 		}
 	}
 }

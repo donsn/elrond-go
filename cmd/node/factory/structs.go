@@ -58,8 +58,9 @@ import (
 	storageFactory "github.com/ElrondNetwork/elrond-go/storage/factory"
 	"github.com/ElrondNetwork/elrond-go/storage/storageUnit"
 	"github.com/ElrondNetwork/elrond-go/storage/timecache"
+	"github.com/ElrondNetwork/elrond-go/update"
 	"github.com/ElrondNetwork/elrond-go/vm"
-	vmcommon "github.com/ElrondNetwork/elrond-vm-common"
+	"github.com/ElrondNetwork/elrond-vm-common/parsers"
 )
 
 const (
@@ -79,6 +80,8 @@ type EpochStartNotifier interface {
 	UnregisterHandler(handler epochStart.ActionHandler)
 	NotifyAll(hdr data.HeaderHandler)
 	NotifyAllPrepare(metaHdr data.HeaderHandler, body data.BodyHandler)
+	RegisterForEpochChangeConfirmed(handler func(epoch uint32))
+	NotifyEpochChangeConfirmed(epoch uint32)
 	IsInterfaceNil() bool
 }
 
@@ -100,6 +103,7 @@ type Process struct {
 	PendingMiniBlocksHandler process.PendingMiniBlocksHandler
 	RequestHandler           process.RequestHandler
 	TxLogsProcessor          process.TransactionLogProcessorDatabase
+	HeaderValidator          epochStart.HeaderValidator
 }
 
 type processComponentsFactoryArgs struct {
@@ -135,10 +139,12 @@ type processComponentsFactoryArgs struct {
 	minSizeInBytes            uint32
 	maxSizeInBytes            uint32
 	maxRating                 uint32
-	validatorPubkeyConverter  state.PubkeyConverter
+	validatorPubkeyConverter  core.PubkeyConverter
 	systemSCConfig            *config.SystemSmartContractsConfig
 	txLogsProcessor           process.TransactionLogProcessor
 	version                   string
+	importStartHandler        update.ImportStartHandler
+	workingDir                string
 }
 
 // NewProcessComponentsFactoryArgs initializes the arguments necessary for creating the process components
@@ -173,10 +179,12 @@ func NewProcessComponentsFactoryArgs(
 	minSizeInBytes uint32,
 	maxSizeInBytes uint32,
 	maxRating uint32,
-	validatorPubkeyConverter state.PubkeyConverter,
+	validatorPubkeyConverter core.PubkeyConverter,
 	ratingsData process.RatingsInfoHandler,
 	systemSCConfig *config.SystemSmartContractsConfig,
 	version string,
+	importStartHandler update.ImportStartHandler,
+	workingDir string,
 ) *processComponentsFactoryArgs {
 	return &processComponentsFactoryArgs{
 		coreComponents:            coreComponents,
@@ -214,6 +222,8 @@ func NewProcessComponentsFactoryArgs(
 		validatorPubkeyConverter:  validatorPubkeyConverter,
 		systemSCConfig:            systemSCConfig,
 		version:                   version,
+		importStartHandler:        importStartHandler,
+		workingDir:                workingDir,
 	}
 }
 
@@ -271,16 +281,43 @@ func ProcessComponentsFactory(args *processComponentsFactoryArgs) (*Process, err
 		return nil, err
 	}
 
+	txLogsStorage := args.data.Store.GetStorer(dataRetriever.TxLogsUnit)
+	txLogsProcessor, err := transactionLog.NewTxLogProcessor(transactionLog.ArgTxLogProcessor{
+		Storer:      txLogsStorage,
+		Marshalizer: args.coreData.InternalMarshalizer,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	args.txLogsProcessor = txLogsProcessor
+	genesisBlocks, err := generateGenesisHeadersAndApplyInitialBalances(args, args.workingDir)
+	if err != nil {
+		return nil, err
+	}
+
+	err = prepareGenesisBlock(args, genesisBlocks)
+	if err != nil {
+		return nil, err
+	}
+
 	validatorStatisticsProcessor, err := newValidatorStatisticsProcessor(args)
 	if err != nil {
 		return nil, err
 	}
 
-	validatorsProvider, err := peer.NewValidatorsProvider(
-		validatorStatisticsProcessor,
-		args.maxRating,
-		args.validatorPubkeyConverter,
-	)
+	cacheRefreshDuration := time.Duration(args.mainConfig.ValidatorStatistics.CacheRefreshIntervalInSec) * time.Second
+	argVSP := peer.ArgValidatorsProvider{
+		NodesCoordinator:                  args.nodesCoordinator,
+		StartEpoch:                        args.startEpochNum,
+		EpochStartEventNotifier:           args.epochStartNotifier,
+		CacheRefreshIntervalDurationInSec: cacheRefreshDuration,
+		ValidatorStatistics:               validatorStatisticsProcessor,
+		MaxRating:                         args.maxRating,
+		PubKeyConverter:                   args.validatorPubkeyConverter,
+	}
+
+	validatorsProvider, err := peer.NewValidatorsProvider(argVSP)
 	if err != nil {
 		return nil, err
 	}
@@ -301,28 +338,7 @@ func ProcessComponentsFactory(args *processComponentsFactoryArgs) (*Process, err
 	if err != nil {
 		return nil, err
 	}
-
 	log.Trace("Validator stats created", "validatorStatsRootHash", validatorStatsRootHash)
-
-	txLogsStorage := args.data.Store.GetStorer(dataRetriever.TxLogsUnit)
-	txLogsProcessor, err := transactionLog.NewTxLogProcessor(transactionLog.ArgTxLogProcessor{
-		Storer:      txLogsStorage,
-		Marshalizer: args.coreData.InternalMarshalizer,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	args.txLogsProcessor = txLogsProcessor
-	genesisBlocks, err := generateGenesisHeadersAndApplyInitialBalances(args)
-	if err != nil {
-		return nil, err
-	}
-
-	err = prepareGenesisBlock(args, genesisBlocks)
-	if err != nil {
-		return nil, err
-	}
 
 	bootStr := args.data.Store.GetStorer(dataRetriever.BootstrapUnit)
 	bootStorer, err := bootstrapStorage.NewBootstrapStorer(args.coreData.InternalMarshalizer, bootStr)
@@ -448,6 +464,7 @@ func ProcessComponentsFactory(args *processComponentsFactoryArgs) (*Process, err
 		args.accountsParser,
 		args.economicsData.GenesisNodePrice(),
 		args.validatorPubkeyConverter,
+		args.crypto.BlockSignKeyGen,
 	)
 	if err != nil {
 		return nil, err
@@ -475,6 +492,7 @@ func ProcessComponentsFactory(args *processComponentsFactoryArgs) (*Process, err
 		PendingMiniBlocksHandler: pendingMiniBlocksHandler,
 		RequestHandler:           requestHandler,
 		TxLogsProcessor:          txLogsProcessor,
+		HeaderValidator:          headerValidator,
 	}, nil
 }
 
@@ -571,6 +589,7 @@ func newEpochStartTrigger(
 			GenesisTime:        time.Unix(args.nodesConfig.StartTime, 0),
 			Settings:           args.epochStart,
 			Epoch:              args.startEpochNum,
+			EpochStartRound:    args.data.Blkc.GetGenesisHeader().GetRound(),
 			EpochStartNotifier: args.epochStartNotifier,
 			Storage:            args.data.Store,
 			Marshalizer:        args.coreData.InternalMarshalizer,
@@ -593,8 +612,11 @@ func newEpochStartTrigger(
 
 // CreateSoftwareVersionChecker will create a new software version checker and will start check if a new software version
 // is available
-func CreateSoftwareVersionChecker(statusHandler core.AppStatusHandler) (*softwareVersion.SoftwareVersionChecker, error) {
-	softwareVersionCheckerFactory, err := factorySoftwareVersion.NewSoftwareVersionFactory(statusHandler)
+func CreateSoftwareVersionChecker(
+	statusHandler core.AppStatusHandler,
+	config config.SoftwareVersionConfig,
+) (*softwareVersion.SoftwareVersionChecker, error) {
+	softwareVersionCheckerFactory, err := factorySoftwareVersion.NewSoftwareVersionFactory(statusHandler, config)
 	if err != nil {
 		return nil, err
 	}
@@ -884,7 +906,7 @@ func newMetaResolverContainerFactory(
 	return resolversContainerFactory, nil
 }
 
-func generateGenesisHeadersAndApplyInitialBalances(args *processComponentsFactoryArgs) (map[uint32]data.HeaderHandler, error) {
+func generateGenesisHeadersAndApplyInitialBalances(args *processComponentsFactoryArgs, workingDir string) (map[uint32]data.HeaderHandler, error) {
 	coreComponents := args.coreData
 	stateComponents := args.state
 	dataComponents := args.data
@@ -918,6 +940,9 @@ func generateGenesisHeadersAndApplyInitialBalances(args *processComponentsFactor
 		TrieStorageManagers:      args.tries.TrieStorageManagers,
 		ChainID:                  string(args.coreComponents.ChainID),
 		SystemSCConfig:           *args.systemSCConfig,
+		BlockSignKeyGen:          args.crypto.BlockSignKeyGen,
+		ImportStartHandler:       args.importStartHandler,
+		WorkingDir:               workingDir,
 	}
 
 	gbc, err := genesisProcess.NewGenesisBlockCreator(arg)
@@ -1082,7 +1107,7 @@ func newShardBlockProcessor(
 	txLogsProcessor process.TransactionLogProcessor,
 	version string,
 ) (process.BlockProcessor, error) {
-	argsParser := vmcommon.NewAtArgumentParser()
+	argsParser := smartContract.NewArgumentParser()
 
 	argsBuiltIn := builtInFunctions.ArgsCreateBuiltInFunctionContainer{
 		GasMap:          gasSchedule,
@@ -1154,7 +1179,7 @@ func newShardBlockProcessor(
 		PubkeyConverter:  stateComponents.AddressPubkeyConverter,
 		ShardCoordinator: shardCoordinator,
 		BuiltInFuncNames: builtInFuncs.Keys(),
-		ArgumentParser:   vmcommon.NewAtArgumentParser(),
+		ArgumentParser:   parsers.NewCallArgsParser(),
 	}
 	txTypeHandler, err := coordinator.NewTxTypeHandler(argsTxTypeHandler)
 	if err != nil {
@@ -1214,6 +1239,8 @@ func newShardBlockProcessor(
 		economics,
 		receiptTxInterim,
 		badTxInterim,
+		argsParser,
+		scForwarder,
 	)
 	if err != nil {
 		return nil, errors.New("could not create transaction statisticsProcessor: " + err.Error())
@@ -1380,7 +1407,7 @@ func newMetaBlockProcessor(
 		return nil, err
 	}
 
-	argsParser := vmcommon.NewAtArgumentParser()
+	argsParser := smartContract.NewArgumentParser()
 
 	vmContainer, err := vmFactory.Create()
 	if err != nil {
@@ -1413,7 +1440,7 @@ func newMetaBlockProcessor(
 		PubkeyConverter:  stateComponents.AddressPubkeyConverter,
 		ShardCoordinator: shardCoordinator,
 		BuiltInFuncNames: builtInFuncs.Keys(),
-		ArgumentParser:   vmcommon.NewAtArgumentParser(),
+		ArgumentParser:   parsers.NewCallArgsParser(),
 	}
 	txTypeHandler, err := coordinator.NewTxTypeHandler(argsTxTypeHandler)
 	if err != nil {
@@ -1531,22 +1558,22 @@ func newMetaBlockProcessor(
 	}
 
 	argsStaking := scToProtocol.ArgStakingToPeer{
-		PubkeyConv:       stateComponents.ValidatorPubkeyConverter,
-		Hasher:           core.Hasher,
-		ProtoMarshalizer: core.InternalMarshalizer,
-		VmMarshalizer:    core.VmMarshalizer,
-		PeerState:        stateComponents.PeerAccounts,
-		BaseState:        stateComponents.AccountsAdapter,
-		ArgParser:        argsParser,
-		CurrTxs:          data.Datapool.CurrentBlockTxs(),
-		ScQuery:          scDataGetter,
-		RatingsData:      ratingsData,
+		PubkeyConv:  stateComponents.ValidatorPubkeyConverter,
+		Hasher:      core.Hasher,
+		Marshalizer: core.InternalMarshalizer,
+		PeerState:   stateComponents.PeerAccounts,
+		BaseState:   stateComponents.AccountsAdapter,
+		ArgParser:   argsParser,
+		CurrTxs:     data.Datapool.CurrentBlockTxs(),
+		ScQuery:     scDataGetter,
+		RatingsData: ratingsData,
 	}
 	smartContractToProtocol, err := scToProtocol.NewStakingToPeer(argsStaking)
 	if err != nil {
 		return nil, err
 	}
 
+	genesisHdr := data.Blkc.GetGenesisHeader()
 	argsEpochStartData := metachainEpochStart.ArgsNewEpochStartData{
 		Marshalizer:       core.InternalMarshalizer,
 		Hasher:            core.Hasher,
@@ -1556,6 +1583,7 @@ func newMetaBlockProcessor(
 		ShardCoordinator:  shardCoordinator,
 		EpochStartTrigger: epochStartTrigger,
 		RequestHandler:    requestHandler,
+		GenesisEpoch:      genesisHdr.GetEpoch(),
 	}
 	epochStartDataCreator, err := metachainEpochStart.NewEpochStartData(argsEpochStartData)
 	if err != nil {
@@ -1563,13 +1591,14 @@ func newMetaBlockProcessor(
 	}
 
 	argsEpochEconomics := metachainEpochStart.ArgsNewEpochEconomics{
-		Marshalizer:         core.InternalMarshalizer,
-		Hasher:              core.Hasher,
-		Store:               data.Store,
-		ShardCoordinator:    shardCoordinator,
-		NodesConfigProvider: nodesCoordinator,
-		RewardsHandler:      economicsData,
-		RoundTime:           rounder,
+		Marshalizer:      core.InternalMarshalizer,
+		Hasher:           core.Hasher,
+		Store:            data.Store,
+		ShardCoordinator: shardCoordinator,
+		RewardsHandler:   economicsData,
+		RoundTime:        rounder,
+		GenesisNonce:     genesisHdr.GetNonce(),
+		GenesisEpoch:     genesisHdr.GetEpoch(),
 	}
 	epochEconomics, err := metachainEpochStart.NewEndOfEpochEconomicsDataCreator(argsEpochEconomics)
 	if err != nil {
@@ -1579,14 +1608,15 @@ func newMetaBlockProcessor(
 	rewardsStorage := data.Store.GetStorer(dataRetriever.RewardTransactionUnit)
 	miniBlockStorage := data.Store.GetStorer(dataRetriever.MiniBlockUnit)
 	argsEpochRewards := metachainEpochStart.ArgsNewRewardsCreator{
-		ShardCoordinator: shardCoordinator,
-		PubkeyConverter:  stateComponents.AddressPubkeyConverter,
-		RewardsStorage:   rewardsStorage,
-		MiniBlockStorage: miniBlockStorage,
-		Hasher:           core.Hasher,
-		Marshalizer:      core.InternalMarshalizer,
-		DataPool:         data.Datapool,
-		CommunityAddress: economicsData.CommunityAddress(),
+		ShardCoordinator:    shardCoordinator,
+		PubkeyConverter:     stateComponents.AddressPubkeyConverter,
+		RewardsStorage:      rewardsStorage,
+		MiniBlockStorage:    miniBlockStorage,
+		Hasher:              core.Hasher,
+		Marshalizer:         core.InternalMarshalizer,
+		DataPool:            data.Datapool,
+		CommunityAddress:    economicsData.CommunityAddress(),
+		NodesConfigProvider: nodesCoordinator,
 	}
 	epochRewards, err := metachainEpochStart.NewEpochStartRewardsCreator(argsEpochRewards)
 	if err != nil {
@@ -1672,7 +1702,8 @@ func newValidatorStatisticsProcessor(
 
 	hardForkConfig := processComponents.mainConfig.Hardfork
 	ratingEnabledEpoch := uint32(0)
-	if hardForkConfig.MustImport {
+
+	if processComponents.importStartHandler.ShouldStartImport() {
 		ratingEnabledEpoch = hardForkConfig.StartEpoch + hardForkConfig.ValidatorGracePeriodInEpochs
 	}
 	arguments := peer.ArgValidatorStatisticsProcessor{
@@ -1688,6 +1719,7 @@ func newValidatorStatisticsProcessor(
 		RewardsHandler:      processComponents.economicsData,
 		NodesSetup:          processComponents.nodesConfig,
 		RatingEnableEpoch:   ratingEnabledEpoch,
+		GenesisNonce:        processComponents.data.Blkc.GetGenesisHeader().GetNonce(),
 	}
 
 	validatorStatisticsProcessor, err := peer.NewValidatorStatisticsProcessor(arguments)
@@ -1713,8 +1745,8 @@ func PrepareNetworkShardingCollector(
 		return nil, err
 	}
 
-	localId := network.NetMessenger.ID()
-	networkShardingCollector.UpdatePeerIdShardId(localId, coordinator.SelfId())
+	localID := network.NetMessenger.ID()
+	networkShardingCollector.UpdatePeerIdShardId(localID, coordinator.SelfId())
 
 	err = network.NetMessenger.SetPeerShardResolver(networkShardingCollector)
 	if err != nil {
@@ -1738,21 +1770,21 @@ func createNetworkShardingCollector(
 	}
 
 	cacheConfig = config.PublicKeyShardId
-	cachePkShardId, err := createCache(cacheConfig)
+	cachePkShardID, err := createCache(cacheConfig)
 	if err != nil {
 		return nil, err
 	}
 
 	cacheConfig = config.PeerIdShardId
-	cachePidShardId, err := createCache(cacheConfig)
+	cachePidShardID, err := createCache(cacheConfig)
 	if err != nil {
 		return nil, err
 	}
 
 	psm, err := networksharding.NewPeerShardMapper(
 		cachePkPid,
-		cachePkShardId,
-		cachePidShardId,
+		cachePkShardID,
+		cachePidShardID,
 		nodesCoordinator,
 		epochStart,
 	)
@@ -1766,7 +1798,7 @@ func createNetworkShardingCollector(
 }
 
 func createCache(cacheConfig config.CacheConfig) (storage.Cacher, error) {
-	return storageUnit.NewCache(storageUnit.CacheType(cacheConfig.Type), cacheConfig.Size, cacheConfig.Shards)
+	return storageUnit.NewCache(storageFactory.GetCacherFromConfig(cacheConfig))
 }
 
 // CreateLatestStorageDataProvider will create a latest storage data provider handler

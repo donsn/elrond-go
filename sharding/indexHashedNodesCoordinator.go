@@ -27,7 +27,7 @@ const (
 )
 
 // TODO: move this to config parameters
-const nodeCoordinatorStoredEpochs = 2
+const nodeCoordinatorStoredEpochs = 3
 
 type validatorWithShardID struct {
 	validator Validator
@@ -84,6 +84,7 @@ type indexHashedNodesCoordinator struct {
 	consensusGroupCacher          Cacher
 	loadingFromDisk               atomic.Value
 	shuffledOutHandler            ShuffledOutHandler
+	startEpoch                    uint32
 }
 
 // NewIndexHashedNodesCoordinator creates a new index hashed group selector
@@ -122,6 +123,7 @@ func NewIndexHashedNodesCoordinator(arguments ArgNodesCoordinator) (*indexHashed
 		consensusGroupCacher:          arguments.ConsensusGroupCache,
 		shardIDAsObserver:             arguments.ShardIDAsObserver,
 		shuffledOutHandler:            arguments.ShuffledOutHandler,
+		startEpoch:                    arguments.StartEpoch,
 	}
 
 	ihgs.loadingFromDisk.Store(false)
@@ -303,17 +305,23 @@ func (ihgs *indexHashedNodesCoordinator) ComputeConsensusGroup(
 	consensusSize := ihgs.ConsensusGroupSize(shardID)
 	randomness = []byte(fmt.Sprintf("%d-%s", round, randomness))
 
-	log.Debug("ComputeValidatorsGroup",
+	log.Debug("computeValidatorsGroup",
 		"randomness", randomness,
 		"consensus size", consensusSize,
-		"eligible list length", len(eligibleList))
+		"eligible list length", len(eligibleList),
+		"epoch", epoch)
 
 	tempList, err := selectValidators(selector, randomness, uint32(consensusSize), eligibleList)
 	if err != nil {
 		return nil, err
 	}
 
-	ihgs.consensusGroupCacher.Put(key, tempList)
+	size := 0
+	for _, v := range tempList {
+		size += v.Size()
+	}
+
+	ihgs.consensusGroupCacher.Put(key, tempList, size)
 
 	return tempList, nil
 }
@@ -639,6 +647,8 @@ func (ihgs *indexHashedNodesCoordinator) computeNodesConfigFromList(
 			newNodesList = append(newNodesList, currentValidator)
 		case string(core.InactiveList):
 			log.Debug("inactive validator", "pk", validatorInfo.PublicKey)
+		case string(core.JailedList):
+			log.Debug("jailed validator", "pk", validatorInfo.PublicKey)
 		}
 	}
 
@@ -785,7 +795,7 @@ func (ihgs *indexHashedNodesCoordinator) GetConsensusWhitelistedNodes(
 	publicKeysPrevEpoch := make(map[uint32][][]byte)
 	prevEpochConfigExists := false
 
-	if epoch > 0 {
+	if epoch > ihgs.startEpoch {
 		publicKeysPrevEpoch, err = ihgs.GetAllEligibleValidatorsPublicKeys(epoch - 1)
 		if err == nil {
 			prevEpochConfigExists = true
@@ -982,22 +992,22 @@ func computeActuallyLeaving(
 	sortedShardIds := sortKeys(unstakeLeaving)
 	for _, shardId := range sortedShardIds {
 		leavingValidatorsPerShard := unstakeLeaving[shardId]
-		for _, validator := range leavingValidatorsPerShard {
-			if processedValidatorsMap[string(validator.PubKey())] {
+		for _, v := range leavingValidatorsPerShard {
+			if processedValidatorsMap[string(v.PubKey())] {
 				continue
 			}
-			processedValidatorsMap[string(validator.PubKey())] = true
+			processedValidatorsMap[string(v.PubKey())] = true
 			found := false
 			for _, leavingValidator := range leaving {
-				if bytes.Equal(validator.PubKey(), leavingValidator.PubKey()) {
+				if bytes.Equal(v.PubKey(), leavingValidator.PubKey()) {
 					found = true
 					break
 				}
 			}
 			if found {
-				actuallyLeaving[shardId] = append(actuallyLeaving[shardId], validator)
+				actuallyLeaving[shardId] = append(actuallyLeaving[shardId], v)
 			} else {
-				actuallyRemaining[shardId] = append(actuallyRemaining[shardId], validator)
+				actuallyRemaining[shardId] = append(actuallyRemaining[shardId], v)
 			}
 		}
 	}

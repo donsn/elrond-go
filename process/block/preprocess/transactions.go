@@ -65,7 +65,7 @@ func NewTransactionPreprocessor(
 	gasHandler process.GasHandler,
 	blockTracker BlockTracker,
 	blockType block.Type,
-	pubkeyConverter state.PubkeyConverter,
+	pubkeyConverter core.PubkeyConverter,
 	blockSizeComputation BlockSizeComputationHandler,
 	balanceComputation BalanceComputationHandler,
 ) (*transactions, error) {
@@ -219,18 +219,18 @@ func (txs *transactions) RestoreTxBlockIntoPools(
 				return txsRestored, err
 			}
 
-			txs.txPool.AddData([]byte(txHash), &tx, strCache)
+			txs.txPool.AddData([]byte(txHash), &tx, tx.Size(), strCache)
 		}
 
 		//TODO: Should be analyzed if restoring into pool only cross-shard miniblocks with destination in self shard,
 		//would create problems or not
 		if miniBlock.SenderShardID != txs.shardCoordinator.SelfId() {
-			miniBlockHash, err := core.CalculateHash(txs.marshalizer, txs.hasher, miniBlock)
-			if err != nil {
-				return txsRestored, err
+			miniBlockHash, errHash := core.CalculateHash(txs.marshalizer, txs.hasher, miniBlock)
+			if errHash != nil {
+				return txsRestored, errHash
 			}
 
-			miniBlockPool.Put(miniBlockHash, miniBlock)
+			miniBlockPool.Put(miniBlockHash, miniBlock, miniBlock.Size())
 		}
 
 		txsRestored += len(miniBlock.TxHashes)
@@ -581,7 +581,7 @@ func (txs *transactions) processAndRemoveBadTransaction(
 	dstShardId uint32,
 ) error {
 
-	err := txs.txProcessor.ProcessTransaction(tx)
+	_, err := txs.txProcessor.ProcessTransaction(tx)
 	isTxTargetedForDeletion := errors.Is(err, process.ErrLowerNonceInTransaction) || errors.Is(err, process.ErrInsufficientFee)
 	if isTxTargetedForDeletion {
 		strCache := process.ShardCacherIdentifier(sndShardId, dstShardId)
@@ -1108,7 +1108,7 @@ func (txs *transactions) ProcessMiniBlock(miniBlock *block.MiniBlock, haveTime f
 
 		txs.saveAccountBalanceForAddress(miniBlockTxs[index].GetRcvAddr())
 
-		err = txs.txProcessor.ProcessTransaction(miniBlockTxs[index])
+		_, err = txs.txProcessor.ProcessTransaction(miniBlockTxs[index])
 		if err != nil {
 			return processedTxHashes, err
 		}

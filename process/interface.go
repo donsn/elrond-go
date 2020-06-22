@@ -18,11 +18,12 @@ import (
 	"github.com/ElrondNetwork/elrond-go/sharding"
 	"github.com/ElrondNetwork/elrond-go/storage"
 	"github.com/ElrondNetwork/elrond-vm-common"
+	"github.com/ElrondNetwork/elrond-vm-common/parsers"
 )
 
 // TransactionProcessor is the main interface for transaction execution engine
 type TransactionProcessor interface {
-	ProcessTransaction(transaction *transaction.Transaction) error
+	ProcessTransaction(transaction *transaction.Transaction) (vmcommon.ReturnCode, error)
 	IsInterfaceNil() bool
 }
 
@@ -40,7 +41,7 @@ type RewardTransactionPreProcessor interface {
 
 // SmartContractResultProcessor is the main interface for smart contract result execution engine
 type SmartContractResultProcessor interface {
-	ProcessSmartContractResult(scr *smartContractResult.SmartContractResult) error
+	ProcessSmartContractResult(scr *smartContractResult.SmartContractResult) (vmcommon.ReturnCode, error)
 	IsInterfaceNil() bool
 }
 
@@ -96,8 +97,9 @@ type InterceptedData interface {
 
 // InterceptorProcessor further validates and saves received data
 type InterceptorProcessor interface {
-	Validate(data InterceptedData, fromConnectedPeer p2p.PeerID) error
-	Save(data InterceptedData, fromConnectedPeer p2p.PeerID) error
+	Validate(data InterceptedData, fromConnectedPeer core.PeerID) error
+	Save(data InterceptedData, fromConnectedPeer core.PeerID, topic string) error
+	RegisterHandler(handler func(topic string, hash []byte, data interface{}))
 	IsInterfaceNil() bool
 }
 
@@ -140,9 +142,9 @@ type TransactionCoordinator interface {
 
 // SmartContractProcessor is the main interface for the smart contract caller engine
 type SmartContractProcessor interface {
-	ExecuteSmartContractTransaction(tx data.TransactionHandler, acntSrc, acntDst state.UserAccountHandler) error
-	DeploySmartContract(tx data.TransactionHandler, acntSrc state.UserAccountHandler) error
-	ProcessIfError(acntSnd state.UserAccountHandler, txHash []byte, tx data.TransactionHandler, returnCode string, snapshot int) error
+	ExecuteSmartContractTransaction(tx data.TransactionHandler, acntSrc, acntDst state.UserAccountHandler) (vmcommon.ReturnCode, error)
+	DeploySmartContract(tx data.TransactionHandler, acntSrc state.UserAccountHandler) (vmcommon.ReturnCode, error)
+	ProcessIfError(acntSnd state.UserAccountHandler, txHash []byte, tx data.TransactionHandler, returnCode string, returnMessage []byte, snapshot int) error
 	IsInterfaceNil() bool
 }
 
@@ -252,7 +254,6 @@ type TransactionLogProcessorDatabase interface {
 // ValidatorsProvider is the main interface for validators' provider
 type ValidatorsProvider interface {
 	GetLatestValidators() map[string]*state.ValidatorApiResponse
-	GetLatestValidatorInfos() (map[uint32][]*state.ValidatorInfo, error)
 	IsInterfaceNil() bool
 }
 
@@ -435,8 +436,9 @@ type BlockChainHookHandler interface {
 // Interceptor defines what a data interceptor should do
 // It should also adhere to the p2p.MessageProcessor interface so it can wire to a p2p.Messenger
 type Interceptor interface {
-	ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedPeer p2p.PeerID) error
-	SetInterceptedDebugHandler(handler InterceptedDebugHandler) error
+	ProcessReceivedMessage(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error
+	SetInterceptedDebugHandler(handler InterceptedDebugger) error
+	RegisterHandler(handler func(topic string, hash []byte, data interface{}))
 	IsInterfaceNil() bool
 }
 
@@ -474,16 +476,29 @@ type RequestHandler interface {
 	IsInterfaceNil() bool
 }
 
+// CallArgumentsParser defines the functionality to parse transaction data into call arguments
+type CallArgumentsParser interface {
+	ParseData(data string) (string, [][]byte, error)
+	IsInterfaceNil() bool
+}
+
+// DeployArgumentsParser defines the functionality to parse transaction data into call arguments
+type DeployArgumentsParser interface {
+	ParseData(data string) (*parsers.DeployArgs, error)
+	IsInterfaceNil() bool
+}
+
+// StorageArgumentsParser defines the functionality to parse transaction data into call arguments
+type StorageArgumentsParser interface {
+	CreateDataFromStorageUpdate(storageUpdates []*vmcommon.StorageUpdate) string
+	GetStorageUpdates(data string) ([]*vmcommon.StorageUpdate, error)
+	IsInterfaceNil() bool
+}
+
 // ArgumentsParser defines the functionality to parse transaction data into arguments and code for smart contracts
 type ArgumentsParser interface {
-	GetFunctionArguments() ([][]byte, error)
-	GetConstructorArguments() ([][]byte, error)
-	GetCode() ([]byte, error)
-	GetCodeDecoded() ([]byte, error)
-	GetVMType() ([]byte, error)
-	GetCodeMetadata() (vmcommon.CodeMetadata, error)
-	GetFunction() (string, error)
-	ParseData(data string) error
+	ParseCallData(data string) (string, [][]byte, error)
+	ParseDeployData(data string) (*parsers.DeployArgs, error)
 
 	CreateDataFromStorageUpdate(storageUpdates []*vmcommon.StorageUpdate) string
 	GetStorageUpdates(data string) ([]*vmcommon.StorageUpdate, error)
@@ -551,6 +566,7 @@ type TransactionWithFeeHandler interface {
 	GetGasPrice() uint64
 	GetData() []byte
 	GetRcvAddr() []byte
+	GetValue() *big.Int
 }
 
 // EconomicsAddressesHandler will return information about economics addresses
@@ -578,6 +594,16 @@ type BlackListHandler interface {
 	Add(key string) error
 	AddWithSpan(key string, span time.Duration) error
 	Has(key string) bool
+	Sweep()
+	IsInterfaceNil() bool
+}
+
+// PeerBlackListHandler can determine if a certain key is or not blacklisted
+type PeerBlackListHandler interface {
+	Add(pid core.PeerID) error
+	AddWithSpan(pid core.PeerID, span time.Duration) error
+	Update(pid core.PeerID, span time.Duration) error
+	Has(pid core.PeerID) bool
 	Sweep()
 	IsInterfaceNil() bool
 }
@@ -680,7 +706,8 @@ type BlockTracker interface {
 // FloodPreventer defines the behavior of a component that is able to signal that too many events occurred
 // on a provided identifier between Reset calls
 type FloodPreventer interface {
-	IncreaseLoad(identifier string, size uint64) error
+	IncreaseLoad(pid core.PeerID, size uint64) error
+	ApplyConsensusSize(size int)
 	Reset()
 	IsInterfaceNil() bool
 }
@@ -688,7 +715,7 @@ type FloodPreventer interface {
 // TopicFloodPreventer defines the behavior of a component that is able to signal that too many events occurred
 // on a provided identifier between Reset calls, on a given topic
 type TopicFloodPreventer interface {
-	IncreaseLoad(identifier string, topic string, numMessages uint32) error
+	IncreaseLoad(pid core.PeerID, topic string, numMessages uint32) error
 	ResetForTopic(topic string)
 	ResetForNotRegisteredTopics()
 	SetMaxMessagesForTopic(topic string, maxNum uint32)
@@ -698,8 +725,11 @@ type TopicFloodPreventer interface {
 // P2PAntifloodHandler defines the behavior of a component able to signal that the system is too busy (or flooded) processing
 // p2p messages
 type P2PAntifloodHandler interface {
-	CanProcessMessage(message p2p.MessageP2P, fromConnectedPeer p2p.PeerID) error
-	CanProcessMessagesOnTopic(peer p2p.PeerID, topic string, numMessages uint32) error
+	CanProcessMessage(message p2p.MessageP2P, fromConnectedPeer core.PeerID) error
+	CanProcessMessagesOnTopic(pid core.PeerID, topic string, numMessages uint32, totalSize uint64, sequence []byte) error
+	ApplyConsensusSize(size int)
+	SetDebugger(debugger AntifloodDebugger) error
+	BlacklistPeer(peer core.PeerID, reason string, duration time.Duration)
 	IsInterfaceNil() bool
 }
 
@@ -832,10 +862,17 @@ type WhiteListHandler interface {
 	IsInterfaceNil() bool
 }
 
-// InterceptedDebugHandler defines an interface for debugging the intercepted data
-type InterceptedDebugHandler interface {
+// InterceptedDebugger defines an interface for debugging the intercepted data
+type InterceptedDebugger interface {
 	LogReceivedHashes(topic string, hashes [][]byte)
 	LogProcessedHashes(topic string, hashes [][]byte, err error)
+	IsInterfaceNil() bool
+}
+
+// AntifloodDebugger defines an interface for debugging the antiflood behavior
+type AntifloodDebugger interface {
+	AddData(pid core.PeerID, topic string, numRejected uint32, sizeRejected uint64, sequence []byte, isBlacklisted bool)
+	Close() error
 	IsInterfaceNil() bool
 }
 

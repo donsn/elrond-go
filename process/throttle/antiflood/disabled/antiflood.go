@@ -1,8 +1,12 @@
 package disabled
 
 import (
+	"time"
+
 	"github.com/ElrondNetwork/elrond-go/consensus"
+	"github.com/ElrondNetwork/elrond-go/core"
 	"github.com/ElrondNetwork/elrond-go/p2p"
+	"github.com/ElrondNetwork/elrond-go/process"
 )
 
 var _ consensus.P2PAntifloodHandler = (*AntiFlood)(nil)
@@ -20,13 +24,26 @@ func (af *AntiFlood) SetMaxMessagesForTopic(_ string, _ uint32) {
 }
 
 // CanProcessMessage will always return nil
-func (af *AntiFlood) CanProcessMessage(_ p2p.MessageP2P, _ p2p.PeerID) error {
+func (af *AntiFlood) CanProcessMessage(_ p2p.MessageP2P, _ core.PeerID) error {
 	return nil
 }
 
 // CanProcessMessagesOnTopic will always return nil
-func (af *AntiFlood) CanProcessMessagesOnTopic(_ p2p.PeerID, _ string, _ uint32) error {
+func (af *AntiFlood) CanProcessMessagesOnTopic(_ core.PeerID, _ string, _ uint32, _ uint64, _ []byte) error {
 	return nil
+}
+
+// ApplyConsensusSize does nothing
+func (af *AntiFlood) ApplyConsensusSize(_ int) {
+}
+
+// SetDebugger returns nil
+func (af *AntiFlood) SetDebugger(_ process.AntifloodDebugger) error {
+	return nil
+}
+
+// BlacklistPeer does nothing
+func (af *AntiFlood) BlacklistPeer(_ core.PeerID, _ string, _ time.Duration) {
 }
 
 // IsInterfaceNil return true if there is no value under the interface

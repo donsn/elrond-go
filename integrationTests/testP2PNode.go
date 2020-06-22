@@ -11,12 +11,14 @@ import (
 	"github.com/ElrondNetwork/elrond-go/crypto/signing"
 	"github.com/ElrondNetwork/elrond-go/crypto/signing/mcl"
 	mclsig "github.com/ElrondNetwork/elrond-go/crypto/signing/mcl/singlesig"
+	"github.com/ElrondNetwork/elrond-go/data/endProcess"
 	"github.com/ElrondNetwork/elrond-go/data/state"
 	"github.com/ElrondNetwork/elrond-go/dataRetriever"
 	"github.com/ElrondNetwork/elrond-go/display"
 	"github.com/ElrondNetwork/elrond-go/integrationTests/mock"
 	"github.com/ElrondNetwork/elrond-go/node"
 	"github.com/ElrondNetwork/elrond-go/p2p"
+	"github.com/ElrondNetwork/elrond-go/process/smartContract"
 	"github.com/ElrondNetwork/elrond-go/sharding"
 	"github.com/ElrondNetwork/elrond-go/sharding/networksharding"
 	"github.com/ElrondNetwork/elrond-go/storage/storageUnit"
@@ -67,9 +69,9 @@ func NewTestP2PNode(
 
 	tP2pNode.ShardCoordinator = shardCoordinator
 
-	pidPk, _ := storageUnit.NewCache(storageUnit.LRUCache, 1000, 0)
-	pkShardId, _ := storageUnit.NewCache(storageUnit.LRUCache, 1000, 0)
-	pidShardId, _ := storageUnit.NewCache(storageUnit.LRUCache, 1000, 0)
+	pidPk, _ := storageUnit.NewCache(storageUnit.CacheConfig{Type: storageUnit.LRUCache, Capacity: 1000})
+	pkShardId, _ := storageUnit.NewCache(storageUnit.CacheConfig{Type: storageUnit.LRUCache, Capacity: 1000})
+	pidShardId, _ := storageUnit.NewCache(storageUnit.CacheConfig{Type: storageUnit.LRUCache, Capacity: 1000})
 	startInEpoch := uint32(0)
 	tP2pNode.NetworkShardingUpdater, err = networksharding.NewPeerShardMapper(
 		pidPk,
@@ -113,13 +115,25 @@ func (tP2pNode *TestP2PNode) initNode() {
 
 	pubkeys := tP2pNode.getPubkeys()
 
+	pkBytes, _ := tP2pNode.NodeKeys.Pk.ToByteArray()
 	argHardforkTrigger := trigger.ArgHardforkTrigger{
-		TriggerPubKeyBytes:   []byte("invalid trigger public key"),
-		Enabled:              false,
-		EnabledAuthenticated: false,
+		TriggerPubKeyBytes:        []byte("invalid trigger public key"),
+		Enabled:                   false,
+		EnabledAuthenticated:      false,
+		ArgumentParser:            smartContract.NewArgumentParser(),
+		EpochProvider:             &mock.EpochStartTriggerStub{},
+		ExportFactoryHandler:      &mock.ExportFactoryHandlerStub{},
+		CloseAfterExportInMinutes: 5,
+		ChanStopNodeProcess:       make(chan endProcess.ArgEndProcess),
+		EpochConfirmedNotifier:    &mock.EpochStartNotifierStub{},
+		SelfPubKeyBytes:           pkBytes,
+		ImportStartHandler:        &mock.ImportStartHandlerStub{},
 	}
 	argHardforkTrigger.SelfPubKeyBytes, _ = tP2pNode.NodeKeys.Pk.ToByteArray()
-	hardforkTrigger, _ := trigger.NewTrigger(argHardforkTrigger)
+	hardforkTrigger, err := trigger.NewTrigger(argHardforkTrigger)
+	if err != nil {
+		fmt.Printf("Error creating hardfork trigger: %s\n", err.Error())
+	}
 
 	tP2pNode.Node, err = node.NewNode(
 		node.WithMessenger(tP2pNode.Messenger),
@@ -145,7 +159,7 @@ func (tP2pNode *TestP2PNode) initNode() {
 			},
 		}),
 		node.WithHardforkTrigger(hardforkTrigger),
-		node.WithPeerBlackListHandler(&mock.BlackListHandlerStub{}),
+		node.WithPeerBlackListHandler(&mock.PeerBlackListHandlerStub{}),
 		node.WithValidatorPubkeyConverter(TestValidatorPubkeyConverter),
 		node.WithValidatorsProvider(&mock.ValidatorsProviderStub{}),
 	)
@@ -159,7 +173,6 @@ func (tP2pNode *TestP2PNode) initNode() {
 		DurationToConsiderUnresponsiveInSec: 60,
 		HeartbeatRefreshIntervalInSec:       5,
 		HideInactiveValidatorIntervalInSec:  600,
-		PeerTypeRefreshIntervalInSec:        5,
 	}
 	err = tP2pNode.Node.StartHeartbeat(hbConfig, "test", config.PreferencesConfig{})
 	if err != nil {
@@ -259,8 +272,8 @@ func CreateNodesWithTestP2PNodes(
 	validatorsMap := GenValidatorsFromPubKeys(pubKeys, uint32(numShards))
 	validatorsForNodesCoordinator, _ := sharding.NodesInfoToValidators(validatorsMap)
 	nodesMap := make(map[uint32][]*TestP2PNode)
-	cacherCfg := storageUnit.CacheConfig{Size: 10000, Type: storageUnit.LRUCache, Shards: 1}
-	cache, _ := storageUnit.NewCache(cacherCfg.Type, cacherCfg.Size, cacherCfg.Shards)
+	cacherCfg := storageUnit.CacheConfig{Capacity: 10000, Type: storageUnit.LRUCache, Shards: 1}
+	cache, _ := storageUnit.NewCache(cacherCfg)
 	for shardId, validatorList := range validatorsMap {
 		argumentsNodesCoordinator := sharding.ArgNodesCoordinator{
 			ShardConsensusGroupSize: shardConsensusGroupSize,
