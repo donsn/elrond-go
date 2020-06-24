@@ -428,9 +428,9 @@ func TestSCCallingDNSUserNames(t *testing.T) {
 		t.Skip("this is not a short test")
 	}
 
-	numOfShards := 2
-	nodesPerShard := 2
-	numMetachainNodes := 2
+	numOfShards := 1
+	nodesPerShard := 1
+	numMetachainNodes := 1
 
 	advertiser := integrationTests.CreateMessengerWithKadDht("")
 	_ = advertiser.Bootstrap()
@@ -496,6 +496,7 @@ func TestSCCallingDNSUserNames(t *testing.T) {
 
 	gasLimit := uint64(1000000)
 
+	_ = logger.SetLogLevel("process/smartcontract:TRACE")
 	userNames := make([]string, len(players))
 	for i, player := range players {
 		userName := generateNewUserName()
