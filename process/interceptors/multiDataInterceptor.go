@@ -123,6 +123,7 @@ func (mdi *MultiDataInterceptor) ProcessReceivedMessage(message p2p.MessageP2P, 
 	}()
 
 	errOriginator := mdi.antifloodHandler.IsOriginatorEligibleForTopic(message.Peer(), mdi.topic)
+	//TODO - improve the reject mechanism for observers as to work with all trie nodes hashes
 	allWhiteListed := true
 	for _, dataBuff := range multiDataBuff {
 		var interceptedData process.InterceptedData
