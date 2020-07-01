@@ -74,7 +74,8 @@ message Economics {
 	bytes  RewardsForCommunity = 5 [(gogoproto.casttypewith) = "math/big.Int;github.com/ElrondNetwork/elrond-go/data.BigIntCaster"];
 	bytes  NodePrice           = 6 [(gogoproto.casttypewith) = "math/big.Int;github.com/ElrondNetwork/elrond-go/data.BigIntCaster"];
 	uint64 PrevEpochStartRound = 7;
-	bytes  PrevEpochStartHash  = 8;
+	uint64 PrevEpochStartNonce = 8;
+	bytes  PrevEpochStartHash  = 9;
 }
 
 // EpochStart holds the block information for end-of-epoch

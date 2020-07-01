@@ -172,7 +172,7 @@ func TestTrigger_ForceEpochStartIncorrectRoundShouldErr(t *testing.T) {
 
 	epochStartTrigger.Update(round, nonce)
 
-	err := epochStartTrigger.ForceEpochStart(0)
+	err := epochStartTrigger.ForceEpochStart(0, 0)
 	assert.Equal(t, epochStart.ErrSavedRoundIsHigherThanInputRound, err)
 }
 
@@ -182,7 +182,7 @@ func TestTrigger_ForceEpochStartRoundEqualWithSavedRoundShouldErr(t *testing.T) 
 	arguments := createMockEpochStartTriggerArguments()
 	epochStartTrigger, _ := NewEpochStartTrigger(arguments)
 
-	err := epochStartTrigger.ForceEpochStart(0)
+	err := epochStartTrigger.ForceEpochStart(0, 0)
 	assert.Equal(t, epochStart.ErrForceEpochStartCanBeCalledOnlyOnNewRound, err)
 }
 
@@ -193,7 +193,7 @@ func TestTrigger_ForceEpochStartNotEnoughRoundsShouldErr(t *testing.T) {
 	arguments.Settings.MinRoundsBetweenEpochs = 2
 	epochStartTrigger, _ := NewEpochStartTrigger(arguments)
 
-	err := epochStartTrigger.ForceEpochStart(1)
+	err := epochStartTrigger.ForceEpochStart(1, 1)
 	assert.Equal(t, epochStart.ErrNotEnoughRoundsBetweenEpochs, err)
 }
 
@@ -205,7 +205,7 @@ func TestTrigger_ForceEpochStartShouldOk(t *testing.T) {
 	arguments.Epoch = epoch
 	epochStartTrigger, _ := NewEpochStartTrigger(arguments)
 
-	err := epochStartTrigger.ForceEpochStart(1)
+	err := epochStartTrigger.ForceEpochStart(1, 1)
 	assert.Nil(t, err)
 
 	newEpoch := epochStartTrigger.Epoch()

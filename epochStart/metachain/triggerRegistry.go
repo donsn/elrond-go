@@ -13,6 +13,7 @@ type TriggerRegistry struct {
 	CurrentRound                uint64
 	EpochFinalityAttestingRound uint64
 	CurrEpochStartRound         uint64
+	CurrEpochStartNonce         uint64
 	PrevEpochStartRound         uint64
 	EpochStartMetaHash          []byte
 	EpochStartMeta              *block.MetaBlock
@@ -39,6 +40,7 @@ func (t *trigger) LoadState(key []byte) error {
 	t.currentRound = state.CurrentRound
 	t.epochFinalityAttestingRound = state.EpochFinalityAttestingRound
 	t.currEpochStartRound = state.CurrEpochStartRound
+	t.currEpochStartNonce = state.CurrEpochStartNonce
 	t.prevEpochStartRound = state.PrevEpochStartRound
 	t.epoch = state.Epoch
 	t.epochStartMetaHash = state.EpochStartMetaHash
@@ -54,6 +56,7 @@ func (t *trigger) saveState(key []byte) error {
 	registry.CurrentRound = t.currentRound
 	registry.EpochFinalityAttestingRound = t.epochFinalityAttestingRound
 	registry.CurrEpochStartRound = t.currEpochStartRound
+	registry.CurrEpochStartNonce = t.currEpochStartNonce
 	registry.PrevEpochStartRound = t.prevEpochStartRound
 	registry.Epoch = t.epoch
 	registry.EpochStartMetaHash = t.epochStartMetaHash

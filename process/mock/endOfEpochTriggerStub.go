@@ -7,7 +7,7 @@ import (
 
 // EpochStartTriggerStub -
 type EpochStartTriggerStub struct {
-	ForceEpochStartCalled             func(round uint64) error
+	ForceEpochStartCalled             func(round uint64, nonce uint64) error
 	IsEpochStartCalled                func() bool
 	EpochCalled                       func() uint32
 	MetaEpochCalled                   func() uint32
@@ -37,7 +37,7 @@ func (e *EpochStartTriggerStub) NotifyAll(_ data.HeaderHandler) {
 }
 
 // SetFinalityAttestingRound -
-func (e *EpochStartTriggerStub) SetFinalityAttestingRound(_ uint64) {
+func (e *EpochStartTriggerStub) SetFinalityAttestingRound(_ uint64, _ uint64) {
 }
 
 // EpochFinalityAttestingRound -
@@ -98,9 +98,9 @@ func (e *EpochStartTriggerStub) SetProcessed(header data.HeaderHandler, _ data.B
 }
 
 // ForceEpochStart -
-func (e *EpochStartTriggerStub) ForceEpochStart(round uint64) error {
+func (e *EpochStartTriggerStub) ForceEpochStart(round uint64, nonce uint64) error {
 	if e.ForceEpochStartCalled != nil {
-		return e.ForceEpochStartCalled(round)
+		return e.ForceEpochStartCalled(round, nonce)
 	}
 	return nil
 }

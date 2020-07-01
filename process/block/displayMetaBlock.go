@@ -278,6 +278,10 @@ func displayEconomicsData(economics block.Economics) []*display.LineData {
 			"",
 			"TotalToDistribute",
 			economics.TotalToDistribute.String()}),
+		display.NewLineData(false, []string{
+			"",
+			"PrevEpochStartNonce",
+			fmt.Sprintf("%d", economics.PrevEpochStartNonce)}),
 		display.NewLineData(true, []string{
 			"",
 			"PrevEpochStartRound",

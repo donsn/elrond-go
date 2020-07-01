@@ -39,6 +39,7 @@ type ArgsNewMetaEpochStartTrigger struct {
 	Settings           *config.EpochStartConfig
 	Epoch              uint32
 	EpochStartRound    uint64
+	EpochStartNonce    uint64
 	EpochStartNotifier epochStart.Notifier
 	Marshalizer        marshal.Marshalizer
 	Hasher             hashing.Hasher
@@ -52,6 +53,7 @@ type trigger struct {
 	currentRound                uint64
 	epochFinalityAttestingRound uint64
 	currEpochStartRound         uint64
+	currEpochStartNonce         uint64
 	prevEpochStartRound         uint64
 	roundsPerEpoch              uint64
 	minRoundsBetweenEpochs      uint64
@@ -113,6 +115,7 @@ func NewEpochStartTrigger(args *ArgsNewMetaEpochStartTrigger) (*trigger, error) 
 		roundsPerEpoch:              uint64(args.Settings.RoundsPerEpoch),
 		epochStartTime:              args.GenesisTime,
 		currEpochStartRound:         args.EpochStartRound,
+		currEpochStartNonce:         args.EpochStartNonce,
 		prevEpochStartRound:         args.EpochStartRound,
 		epoch:                       args.Epoch,
 		minRoundsBetweenEpochs:      uint64(args.Settings.MinRoundsBetweenEpochs),
@@ -160,7 +163,7 @@ func (t *trigger) EpochFinalityAttestingRound() uint64 {
 }
 
 // ForceEpochStart sets the conditions for start of epoch to true in case of edge cases
-func (t *trigger) ForceEpochStart(round uint64) error {
+func (t *trigger) ForceEpochStart(round uint64, nonce uint64) error {
 	t.mutTrigger.Lock()
 	defer t.mutTrigger.Unlock()
 
@@ -183,6 +186,7 @@ func (t *trigger) ForceEpochStart(round uint64) error {
 
 	t.prevEpochStartRound = t.currEpochStartRound
 	t.currEpochStartRound = t.currentRound
+	t.currEpochStartNonce = nonce
 	t.isEpochStart = true
 	t.saveCurrentState(round)
 
@@ -212,11 +216,12 @@ func (t *trigger) Update(round uint64, nonce uint64) {
 		t.isEpochStart = true
 		t.prevEpochStartRound = t.currEpochStartRound
 		t.currEpochStartRound = t.currentRound
+		t.currEpochStartNonce = nonce
 		t.saveCurrentState(round)
 
 		msg := fmt.Sprintf("EPOCH %d BEGINS IN ROUND (%d)", t.epoch, t.currentRound)
 		log.Debug(display.Headline(msg, "", "#"))
-		log.Debug("trigger.Update", "isEpochStart", t.isEpochStart)
+		log.Debug("trigger.Update", "isEpochStart", t.isEpochStart, "round", t.currentRound, "nonce", nonce)
 		logger.SetCorrelationEpoch(t.epoch)
 	}
 }
@@ -271,11 +276,11 @@ func (t *trigger) SetProcessed(header data.HeaderHandler, body data.BodyHandler)
 }
 
 // SetFinalityAttestingRound sets the round which finalized the start of epoch block
-func (t *trigger) SetFinalityAttestingRound(round uint64) {
+func (t *trigger) SetFinalityAttestingRound(round uint64, nonce uint64) {
 	t.mutTrigger.Lock()
 	defer t.mutTrigger.Unlock()
 
-	if round > t.currEpochStartRound {
+	if round > t.currEpochStartRound && nonce > t.currEpochStartNonce {
 		t.epochFinalityAttestingRound = round
 		t.saveCurrentState(round)
 		t.epochStartNotifier.NotifyEpochChangeConfirmed(t.epoch)
@@ -371,6 +376,7 @@ func (t *trigger) revert(header data.HeaderHandler) error {
 	}
 
 	t.currEpochStartRound = metaHdr.EpochStart.Economics.PrevEpochStartRound
+	t.currEpochStartNonce = metaHdr.EpochStart.Economics.PrevEpochStartNonce
 	t.epoch = metaHdr.Epoch - 1
 	t.isEpochStart = false
 	t.epochStartMeta = epochStartMeta

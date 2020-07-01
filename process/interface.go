@@ -406,7 +406,7 @@ type EpochStartTriggerHandler interface {
 	GetSavedStateKey() []byte
 	LoadState(key []byte) error
 	IsInterfaceNil() bool
-	SetFinalityAttestingRound(round uint64)
+	SetFinalityAttestingRound(round uint64, nonce uint64)
 	EpochFinalityAttestingRound() uint64
 	RequestEpochStartIfNeeded(interceptedHeader data.HeaderHandler)
 }

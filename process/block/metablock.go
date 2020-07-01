@@ -1339,7 +1339,7 @@ func (mp *metaProcessor) commitEpochStart(header *block.MetaBlock, body *block.B
 	} else {
 		currentHeader := mp.blockChain.GetCurrentBlockHeader()
 		if !check.IfNil(currentHeader) && currentHeader.IsStartOfEpochBlock() {
-			mp.epochStartTrigger.SetFinalityAttestingRound(header.GetRound())
+			mp.epochStartTrigger.SetFinalityAttestingRound(header.GetRound(), header.Nonce)
 			mp.nodesCoordinator.ShuffleOutForEpoch(currentHeader.GetEpoch())
 		}
 	}

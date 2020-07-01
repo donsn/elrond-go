@@ -17,6 +17,7 @@ func cloneTrigger(t *trigger) *trigger {
 	rt.currentRound = t.currentRound
 	rt.epochFinalityAttestingRound = t.epochFinalityAttestingRound
 	rt.currEpochStartRound = t.currEpochStartRound
+	rt.currEpochStartNonce = t.currEpochStartNonce
 	rt.prevEpochStartRound = t.prevEpochStartRound
 	rt.roundsPerEpoch = t.roundsPerEpoch
 	rt.minRoundsBetweenEpochs = t.minRoundsBetweenEpochs

@@ -587,6 +587,7 @@ func newEpochStartTrigger(
 			Settings:           args.epochStart,
 			Epoch:              args.startEpochNum,
 			EpochStartRound:    args.data.Blkc.GetGenesisHeader().GetRound(),
+			EpochStartNonce:    args.data.Blkc.GetGenesisHeader().GetNonce(),
 			EpochStartNotifier: args.epochStartNotifier,
 			Storage:            args.data.Store,
 			Marshalizer:        args.coreData.InternalMarshalizer,

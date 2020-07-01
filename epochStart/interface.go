@@ -12,7 +12,7 @@ import (
 // TriggerHandler defines the functionalities for an start of epoch trigger
 type TriggerHandler interface {
 	Close() error
-	ForceEpochStart(round uint64) error
+	ForceEpochStart(round uint64, nonce uint64) error
 	IsEpochStart() bool
 	Epoch() uint32
 	MetaEpoch() uint32
@@ -22,7 +22,7 @@ type TriggerHandler interface {
 	GetSavedStateKey() []byte
 	LoadState(key []byte) error
 	SetProcessed(header data.HeaderHandler, body data.BodyHandler)
-	SetFinalityAttestingRound(round uint64)
+	SetFinalityAttestingRound(round uint64, nonce uint64)
 	EpochFinalityAttestingRound() uint64
 	RevertStateToBlock(header data.HeaderHandler) error
 	SetCurrentEpochStartRound(round uint64)

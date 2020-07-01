@@ -65,7 +65,7 @@ func (e *epochStartTrigger) LoadState(_ []byte) error {
 }
 
 // SetFinalityAttestingRound -
-func (e *epochStartTrigger) SetFinalityAttestingRound(_ uint64) {
+func (e *epochStartTrigger) SetFinalityAttestingRound(_ uint64, _ uint64) {
 }
 
 // EpochFinalityAttestingRound -

@@ -144,6 +144,7 @@ func (e *economics) ComputeEndOfEpochEconomics(
 		// TODO: get actual nodePrice from auction smart contract (currently on another feature branch, and not all features enabled)
 		NodePrice:           big.NewInt(0).Set(prevEpochEconomics.NodePrice),
 		PrevEpochStartRound: prevEpochStart.GetRound(),
+		PrevEpochStartNonce: prevEpochStart.GetNonce(),
 		PrevEpochStartHash:  prevEpochStartHash,
 	}
 

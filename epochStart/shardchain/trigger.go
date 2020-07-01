@@ -344,10 +344,7 @@ func (t *trigger) EpochFinalityAttestingRound() uint64 {
 }
 
 // ForceEpochStart sets the conditions for start of epoch to true in case of edge cases
-func (t *trigger) ForceEpochStart(_ uint64) error {
-	t.mutTrigger.Lock()
-	defer t.mutTrigger.Unlock()
-
+func (t *trigger) ForceEpochStart(_ uint64, _ uint64) error {
 	return nil
 }
 
@@ -925,7 +922,7 @@ func (t *trigger) Update(_ uint64, _ uint64) {
 }
 
 // SetFinalityAttestingRound sets the round which finalized the start of epoch block
-func (t *trigger) SetFinalityAttestingRound(_ uint64) {
+func (t *trigger) SetFinalityAttestingRound(_ uint64, _ uint64) {
 }
 
 // SetCurrentEpochStartRound sets the round when the current epoch started
