@@ -176,7 +176,7 @@ func (txProc *txProcessor) ProcessTransaction(tx *transaction.Transaction) (vmco
 		return txProc.processRelayedTx(tx, tx.SndAddr, tx.RcvAddr)
 	}
 
-	return vmcommon.UserError, process.ErrWrongTransaction
+	return vmcommon.UserError, txProc.executingFailedTransaction(tx, acntSnd, process.ErrWrongTransaction)
 }
 
 func (txProc *txProcessor) executeAfterFailedMoveBalanceTransaction(
@@ -188,10 +188,7 @@ func (txProc *txProcessor) executeAfterFailedMoveBalanceTransaction(
 		return err
 	}
 
-	switch txError {
-	case process.ErrInvalidMetaTransaction:
-		return txProc.executingFailedTransaction(tx, acntSnd, txError)
-	case process.ErrAccountNotPayable:
+	if txError == process.ErrInvalidMetaTransaction || txError == process.ErrAccountNotPayable {
 		snapshot := txProc.accounts.JournalLen()
 		txHash, err := core.CalculateHash(txProc.marshalizer, txProc.hasher, tx)
 		if err != nil {
@@ -213,9 +210,9 @@ func (txProc *txProcessor) executeAfterFailedMoveBalanceTransaction(
 		}
 
 		return process.ErrFailedTransaction
-	default:
-		return txError
 	}
+
+	return txError
 }
 
 func (txProc *txProcessor) executingFailedTransaction(

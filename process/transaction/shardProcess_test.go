@@ -1017,15 +1017,24 @@ func TestTxProcessor_ProcessTransactionShouldReturnErrForInvalidMetaTx(t *testin
 
 	acntSrc, err := state.NewUserAccount(tx.SndAddr)
 	assert.Nil(t, err)
-	acntSrc.Balance = big.NewInt(45)
+	acntSrc.Balance = big.NewInt(46)
 
 	adb := createAccountStub(tx.SndAddr, tx.RcvAddr, acntSrc, nil)
-	scProcessorMock := &mock.SCProcessorMock{}
+	scProcessorMock := &mock.SCProcessorMock{
+		ProcessIfErrorCalled: func(acntSnd state.UserAccountHandler, txHash []byte, tx data.TransactionHandler, returnCode string, returnMessage []byte, snapshot int) error {
+			return acntSnd.AddToBalance(tx.GetValue())
+		},
+	}
 	shardC, _ := sharding.NewMultiShardCoordinator(5, 3)
 	args := createArgsForTxProcessor()
 	args.Accounts = adb
 	args.ScProcessor = scProcessorMock
 	args.ShardCoordinator = shardC
+	args.EconomicsFee = &mock.FeeHandlerStub{
+		ComputeFeeCalled: func(tx process.TransactionWithFeeHandler) *big.Int {
+			return big.NewInt(1)
+		},
+	}
 	args.TxTypeHandler = &mock.TxTypeHandlerMock{
 		ComputeTransactionTypeCalled: func(tx data.TransactionHandler) (transactionType process.TransactionType) {
 			return process.MoveBalance
@@ -1035,6 +1044,46 @@ func TestTxProcessor_ProcessTransactionShouldReturnErrForInvalidMetaTx(t *testin
 
 	_, err = execTx.ProcessTransaction(&tx)
 	assert.Equal(t, err, process.ErrFailedTransaction)
+	assert.Equal(t, uint64(1), acntSrc.Nonce)
+	assert.Equal(t, uint64(45), acntSrc.Balance.Uint64())
+}
+
+func TestTxProcessor_ProcessTransactionShouldTreatAsInvalidTxIfTxTypeIsWrong(t *testing.T) {
+	t.Parallel()
+
+	tx := transaction.Transaction{}
+	tx.Nonce = 0
+	tx.SndAddr = []byte("SRC")
+	tx.RcvAddr = factory.StakingSCAddress
+	tx.Value = big.NewInt(45)
+	tx.GasPrice = 1
+	tx.GasLimit = 1
+
+	acntSrc, err := state.NewUserAccount(tx.SndAddr)
+	assert.Nil(t, err)
+	acntSrc.Balance = big.NewInt(46)
+
+	adb := createAccountStub(tx.SndAddr, tx.RcvAddr, acntSrc, nil)
+	shardC, _ := sharding.NewMultiShardCoordinator(5, 3)
+	args := createArgsForTxProcessor()
+	args.Accounts = adb
+	args.ShardCoordinator = shardC
+	args.EconomicsFee = &mock.FeeHandlerStub{
+		ComputeFeeCalled: func(tx process.TransactionWithFeeHandler) *big.Int {
+			return big.NewInt(1)
+		},
+	}
+	args.TxTypeHandler = &mock.TxTypeHandlerMock{
+		ComputeTransactionTypeCalled: func(tx data.TransactionHandler) (transactionType process.TransactionType) {
+			return process.InvalidTransaction
+		},
+	}
+	execTx, _ := txproc.NewTxProcessor(args)
+
+	_, err = execTx.ProcessTransaction(&tx)
+	assert.Equal(t, err, process.ErrFailedTransaction)
+	assert.Equal(t, uint64(1), acntSrc.Nonce)
+	assert.Equal(t, uint64(45), acntSrc.Balance.Uint64())
 }
 
 func TestTxProcessor_ProcessRelayedTransaction(t *testing.T) {
