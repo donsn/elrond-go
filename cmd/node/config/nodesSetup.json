@@ -3,7 +3,7 @@
   "roundDuration": 4000,
   "consensusGroupSize": 3,
   "minNodesPerShard": 3,
-  "chainID": "1591641365",
+  "chainID": "1",
   "minTransactionVersion": 1,
   "metaChainConsensusGroupSize": 3,
   "metaChainMinNodes": 3,
