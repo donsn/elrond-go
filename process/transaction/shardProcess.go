@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math/big"
 
+	logger "github.com/ElrondNetwork/elrond-go-logger"
 	"github.com/ElrondNetwork/elrond-go/core"
 	"github.com/ElrondNetwork/elrond-go/core/check"
 	"github.com/ElrondNetwork/elrond-go/data"
@@ -19,6 +20,7 @@ import (
 	vmcommon "github.com/ElrondNetwork/elrond-vm-common"
 )
 
+var log = logger.GetOrCreate("process/transaction")
 var _ process.TransactionProcessor = (*txProcessor)(nil)
 
 // txProcessor implements TransactionProcessor interface and can modify account states according to a transaction
@@ -449,61 +451,74 @@ func (txProc *txProcessor) processRelayedTx(
 
 	_, args, err := txProc.argsParser.ParseCallData(string(tx.GetData()))
 	if err != nil {
+		log.Error("relayedTxgenDebug - processRelayedTx parse call data", "error", err)
 		return 0, err
 	}
 
 	relayerAcnt, acntDst, err := txProc.getAccounts(adrSrc, adrDst)
 	if err != nil {
+		log.Error("relayedTxgenDebug - processRelayedTx get accounts", "err", err)
 		return 0, err
 	}
 
 	if len(args) != 1 {
+		log.Error("relayedTxgenDebug - processRelayedTx not enough args")
 		return vmcommon.UserError, txProc.executingFailedTransaction(tx, relayerAcnt, process.ErrInvalidArguments)
 	}
 
 	if txProc.disabledRelayedTx {
+		log.Error("relayedTxgenDebug - processRelayedTx relayed is disabled")
 		return vmcommon.UserError, txProc.executingFailedTransaction(tx, relayerAcnt, process.ErrRelayedTxDisabled)
 	}
 
 	userTx := &transaction.Transaction{}
 	err = txProc.signMarshalizer.Unmarshal(userTx, args[0])
 	if err != nil {
+		log.Error("relayedTxgenDebug - processRelayedTx unmarshal err", "error", err)
 		return vmcommon.UserError, txProc.executingFailedTransaction(tx, relayerAcnt, err)
 	}
 	if !bytes.Equal(userTx.SndAddr, tx.RcvAddr) {
+		log.Error("relayedTxgenDebug - processRelayedTx user tx sender not equals to tx rcvr")
 		return vmcommon.UserError, txProc.executingFailedTransaction(tx, relayerAcnt, process.ErrRelayedTxBeneficiaryDoesNotMatchReceiver)
 	}
 	if userTx.Value.Cmp(tx.Value) < 0 {
+		log.Error("relayedTxgenDebug - processRelayedTx user tx value not equals to tx value")
 		return vmcommon.UserError, txProc.executingFailedTransaction(tx, relayerAcnt, process.ErrRelayedTxValueHigherThenUserTxValue)
 	}
 	if userTx.GasPrice != tx.GasPrice {
+		log.Error("relayedTxgenDebug - processRelayedTx different gas limit")
 		return vmcommon.UserError, txProc.executingFailedTransaction(tx, relayerAcnt, process.ErrRelayedGasPriceMissmatch)
 	}
 
 	totalFee, remainingFee, remainingGasLimit := txProc.computeRelayedTxFees(tx)
 	if userTx.GasLimit != remainingGasLimit {
+		log.Error("relayedTxgenDebug - processRelayedTx user gas limit not equals to remaining", "user tx fee", userTx.GasLimit, "remaining", remainingGasLimit)
 		return vmcommon.UserError, txProc.executingFailedTransaction(tx, relayerAcnt, process.ErrRelayedTxGasLimitMissmatch)
 	}
 
 	txHash, err := core.CalculateHash(txProc.marshalizer, txProc.hasher, tx)
 	if err != nil {
+		log.Error("relayedTxgenDebug - processRelayedTx calculate hash", "error", err)
 		return 0, err
 	}
 
 	if !check.IfNil(relayerAcnt) {
 		err = relayerAcnt.SubFromBalance(tx.GetValue())
 		if err != nil {
+			log.Error("relayedTxgenDebug - processRelayedTx sub from balance 1", "error", err)
 			return 0, err
 		}
 
 		err = relayerAcnt.SubFromBalance(totalFee)
 		if err != nil {
+			log.Error("relayedTxgenDebug - processRelayedTx sub from balance 2", "error", err)
 			return 0, err
 		}
 
 		relayerAcnt.IncreaseNonce(1)
 		err = txProc.accounts.SaveAccount(relayerAcnt)
 		if err != nil {
+			log.Error("relayedTxgenDebug - processRelayedTx save account relayer acnt", "error", err)
 			return 0, err
 		}
 
@@ -516,20 +531,30 @@ func (txProc *txProcessor) processRelayedTx(
 
 	err = acntDst.AddToBalance(tx.GetValue())
 	if err != nil {
+		log.Error("relayedTxgenDebug - processRelayedTx add to balance 1", "error", err)
 		return 0, err
 	}
 
 	err = acntDst.AddToBalance(remainingFee)
 	if err != nil {
+		log.Error("relayedTxgenDebug - processRelayedTx add to balance 2", "error", err)
 		return 0, err
 	}
 
 	err = txProc.accounts.SaveAccount(acntDst)
 	if err != nil {
+		log.Error("relayedTxgenDebug - processRelayedTx Save account", "error", err)
 		return 0, err
 	}
 
-	return txProc.processUserTx(tx, userTx, adrSrc, tx.Value, tx.Nonce, txHash)
+	rc, err := txProc.processUserTx(tx, userTx, adrSrc, tx.Value, tx.Nonce, txHash)
+	if err != nil {
+		log.Error("relayedTxgenDebug - processUserTx was bad", "error", err)
+	} else {
+		log.Error("relayedTxgenDebug - processUserTx was ok", "rc", rc)
+	}
+
+	return rc, err
 }
 
 func (txProc *txProcessor) computeRelayedTxFees(tx *transaction.Transaction) (*big.Int, *big.Int, uint64) {
@@ -587,6 +612,7 @@ func (txProc *txProcessor) processUserTx(
 	txType := txProc.txTypeHandler.ComputeTransactionType(userTx)
 	err = txProc.checkTxValues(userTx, acntSnd, acntDst)
 	if err != nil {
+		log.Error("vox processUserTx - check tx values", "error", err)
 		errRemove := txProc.removeValueAndConsumedFeeFromUser(userTx, relayedTxValue)
 		if errRemove != nil {
 			return vmcommon.UserError, errRemove
@@ -614,6 +640,7 @@ func (txProc *txProcessor) processUserTx(
 	case process.BuiltInFunctionCall:
 		returnCode, err = txProc.scProcessor.ExecuteSmartContractTransaction(scrFromTx, acntSnd, acntDst)
 	default:
+		log.Error("relayedTxgenDebug - processUserTx - wrong tx")
 		err = process.ErrWrongTransaction
 		errRemove := txProc.removeValueAndConsumedFeeFromUser(userTx, relayedTxValue)
 		if errRemove != nil {
@@ -640,6 +667,10 @@ func (txProc *txProcessor) processUserTx(
 			err.Error())
 	}
 
+	log.Error("relayedTxgenDebug - processUserTx - ok", "rc", returnCode)
+	if err != nil {
+		log.Error("relayedTxgenDebug - processUserTx - not ok", "rc", returnCode, "error", err)
+	}
 	// no need to add the smart contract result From TX to the intermediate transactions in case of error
 	// returning value is resolved inside smart contract processor or above by executeFailedRelayedTransaction
 	if returnCode != vmcommon.Ok {
@@ -648,6 +679,7 @@ func (txProc *txProcessor) processUserTx(
 
 	err = txProc.scrForwarder.AddIntermediateTransactions([]data.TransactionHandler{scrFromTx})
 	if err != nil {
+		log.Error("vox processUserTx - AddIntermediateTransactions", "error", err)
 		return 0, err
 	}
 

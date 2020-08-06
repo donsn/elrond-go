@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"net/http"
 
+	logger "github.com/ElrondNetwork/elrond-go-logger"
 	"github.com/ElrondNetwork/elrond-go/api/errors"
 	"github.com/ElrondNetwork/elrond-go/api/middleware"
 	"github.com/ElrondNetwork/elrond-go/api/shared"
@@ -14,6 +15,8 @@ import (
 	"github.com/ElrondNetwork/elrond-go/data/transaction"
 	"github.com/gin-gonic/gin"
 )
+
+var log = logger.GetOrCreate("api/transaction")
 
 const (
 	sendTransactionEndpoint          = "/transaction/send"
@@ -259,6 +262,7 @@ func SendMultipleTransactions(c *gin.Context) {
 
 		err = facade.ValidateTransaction(tx)
 		if err != nil {
+			log.Error("relayedTxgenDebug - api tx validate", "error", err, "sender", tx.SndAddr, "nonce", tx.Nonce)
 			continue
 		}
 
