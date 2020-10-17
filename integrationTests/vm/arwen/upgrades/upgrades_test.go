@@ -112,13 +112,14 @@ func TestUpgrades_ParentAndChildContracts(t *testing.T) {
 
 	fmt.Println("Deploy child v2")
 	context.ScAddress = parentAddress
-	// We need to double hex-encode the code (so that we don't have to hex-encode in the contract).
+
 	childUpgradedCode := arwen.GetSCCode("../testdata/hello-v2/output/answer.wasm")
-	childUpgradedCode = hex.EncodeToString([]byte(childUpgradedCode))
-	// Not supported at this moment, V2 not deployed.
-	// TODO: Adjust test when upgrade child from parent is supported.
 	err = context.ExecuteSC(owner, "upgradeChild@"+childUpgradedCode)
 	require.Nil(t, err)
+
+	context.ScAddress = childAddress
+	require.Equal(t, uint64(42), context.QuerySCInt("getUltimateAnswer", [][]byte{}))
+	parentAddress = context.ScAddress
 }
 
 func TestUpgrades_UpgradeDelegationContract(t *testing.T) {
@@ -126,8 +127,8 @@ func TestUpgrades_UpgradeDelegationContract(t *testing.T) {
 	defer context.Close()
 
 	delegationWasmPath := "../testdata/delegation/delegation.wasm"
-	delegationInitParams := "0000000000000000000000000000000000000000000000000000000000000000@0064@0064@0064"
-	delegationUpgradeParams := "0000000000000000000000000000000000000000000000000000000000000000@0080@0080@0080"
+	delegationInitParams := "0000000000000000000000000000000000000000000000000000000000000000@03E8@00@030D40@030D40"
+	delegationUpgradeParams := "0000000000000000000000000000000000000000000000000000000000000000@03E8@00@030D40@030D40"
 
 	context.ScCodeMetadata.Upgradeable = true
 	context.GasLimit = 21700000
@@ -143,8 +144,8 @@ func TestUpgrades_DelegationCannotBeUpgradedByNonOwner(t *testing.T) {
 	defer context.Close()
 
 	delegationWasmPath := "../testdata/delegation/delegation.wasm"
-	delegationInitParams := "0000000000000000000000000000000000000000000000000000000000000000@0064@0064@0064"
-	delegationUpgradeParams := "0000000000000000000000000000000000000000000000000000000000000000@0080@0080@0080"
+	delegationInitParams := "0000000000000000000000000000000000000000000000000000000000000000@03E8@00@030D40@030D40"
+	delegationUpgradeParams := "0000000000000000000000000000000000000000000000000000000000000000@03E8@00@030D40@030D40"
 
 	context.GasLimit = 21700000
 	err := context.DeploySC(delegationWasmPath, delegationInitParams)

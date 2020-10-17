@@ -5,6 +5,7 @@ import (
 
 	"github.com/ElrondNetwork/elrond-go/consensus/spos/sposFactory"
 	"github.com/ElrondNetwork/elrond-go/core"
+	"github.com/ElrondNetwork/elrond-go/core/forking"
 	"github.com/ElrondNetwork/elrond-go/core/indexer"
 	"github.com/ElrondNetwork/elrond-go/data/state"
 	"github.com/ElrondNetwork/elrond-go/dataRetriever"
@@ -78,12 +79,13 @@ func NewTestSyncNode(
 		},
 		StorageBootstrapper:     &mock.StorageBootstrapperMock{},
 		HeaderSigVerifier:       &mock.HeaderSigVerifierStub{},
-		HeaderIntegrityVerifier: &mock.HeaderIntegrityVerifierStub{},
+		HeaderIntegrityVerifier: CreateHeaderIntegrityVerifier(),
 		ChainID:                 ChainID,
 		EpochStartTrigger:       &mock.EpochStartTriggerStub{},
 		NodesSetup:              nodesSetup,
 		MinTransactionVersion:   MinTransactionVersion,
-		HistoryRepository:       &mock.HistoryRepositoryStub{},
+		HistoryRepository:       &testscommon.HistoryRepositoryStub{},
+		EpochNotifier:           forking.NewGenericEpochNotifier(),
 	}
 
 	kg := &mock.KeyGenMock{}
@@ -130,7 +132,7 @@ func (tpn *TestProcessorNode) initTestNodeWithSync() {
 	tpn.initBootstrapper()
 	tpn.setGenesisBlock()
 	tpn.initNode()
-	tpn.SCQueryService, _ = smartContract.NewSCQueryService(tpn.VMContainer, tpn.EconomicsData)
+	tpn.SCQueryService, _ = smartContract.NewSCQueryService(tpn.VMContainer, tpn.EconomicsData, tpn.BlockchainHook, tpn.BlockChain)
 	tpn.addHandlersForCounters()
 	tpn.addGenesisBlocksIntoStorage()
 }
@@ -177,15 +179,16 @@ func (tpn *TestProcessorNode) initBlockProcessorWithSync() {
 				return nil
 			},
 		},
-		BlockTracker:           tpn.BlockTracker,
-		DataPool:               tpn.DataPool,
-		StateCheckpointModulus: stateCheckpointModulus,
-		BlockChain:             tpn.BlockChain,
-		BlockSizeThrottler:     TestBlockSizeThrottler,
-		Indexer:                indexer.NewNilIndexer(),
-		TpsBenchmark:           &testscommon.TpsBenchmarkMock{},
-		Version:                string(SoftwareVersion),
-		HistoryRepository:      tpn.HistoryRepository,
+		BlockTracker:            tpn.BlockTracker,
+		DataPool:                tpn.DataPool,
+		StateCheckpointModulus:  stateCheckpointModulus,
+		BlockChain:              tpn.BlockChain,
+		BlockSizeThrottler:      TestBlockSizeThrottler,
+		Indexer:                 indexer.NewNilIndexer(),
+		TpsBenchmark:            &testscommon.TpsBenchmarkMock{},
+		HistoryRepository:       tpn.HistoryRepository,
+		EpochNotifier:           tpn.EpochNotifier,
+		HeaderIntegrityVerifier: tpn.HeaderIntegrityVerifier,
 	}
 
 	if tpn.ShardCoordinator.SelfId() == core.MetachainShardId {
@@ -194,7 +197,6 @@ func (tpn *TestProcessorNode) initBlockProcessorWithSync() {
 		argumentsBase.TxCoordinator = &mock.TransactionCoordinatorMock{}
 		arguments := block.ArgMetaProcessor{
 			ArgBaseProcessor:             argumentsBase,
-			SCDataGetter:                 &mock.ScQueryStub{},
 			SCToProtocol:                 &mock.SCToProtocolStub{},
 			PendingMiniBlocksHandler:     &mock.PendingMiniBlocksHandlerStub{},
 			EpochStartDataCreator:        &mock.EpochStartDataCreatorStub{},
@@ -202,6 +204,7 @@ func (tpn *TestProcessorNode) initBlockProcessorWithSync() {
 			EpochRewardsCreator:          &mock.EpochRewardsCreatorStub{},
 			EpochValidatorInfoCreator:    &mock.EpochValidatorInfoCreatorStub{},
 			ValidatorStatisticsProcessor: &mock.ValidatorStatisticsProcessorStub{},
+			EpochSystemSCProcessor:       &mock.EpochStartSystemSCStub{},
 		}
 
 		tpn.BlockProcessor, err = block.NewMetaProcessor(arguments)

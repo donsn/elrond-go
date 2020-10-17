@@ -48,6 +48,7 @@ type ArgHeartbeat struct {
 	PeerShardMapper          heartbeat.NetworkShardingCollector
 	SizeCheckDelta           uint32
 	ValidatorsProvider       peerProcess.ValidatorsProvider
+	CurrentBlockProvider     heartbeat.CurrentBlockProvider
 }
 
 // HeartbeatHandler is the struct used to manage heartbeat subsystem consisting of a heartbeat sender and monitor
@@ -122,6 +123,7 @@ func (hbh *HeartbeatHandler) create() error {
 		NodeDisplayName:      arg.PrefsConfig.NodeDisplayName,
 		KeyBaseIdentity:      arg.PrefsConfig.Identity,
 		HardforkTrigger:      arg.HardforkTrigger,
+		CurrentBlockProvider: arg.CurrentBlockProvider,
 	}
 
 	hbh.sender, err = process.NewSender(argSender)
@@ -230,12 +232,15 @@ func (hbh *HeartbeatHandler) startSendingHeartbeats(ctx context.Context) {
 		case <-time.After(timeToWait):
 		case <-hbh.arg.HardforkTrigger.NotifyTriggerReceived(): //this will force an immediate broadcast of the trigger
 			//message on the network
+			log.Debug("hardfork message prepared for heartbeat sending")
 		}
 
 		err := hbh.sender.SendHeartbeat()
 		if err != nil {
 			log.Debug("SendHeartbeat", "error", err.Error())
 		}
+
+		hbh.monitor.Cleanup()
 	}
 }
 
@@ -272,6 +277,7 @@ func (hbh *HeartbeatHandler) Sender() *process.Sender {
 // Close will close the endless running go routine
 func (hbh *HeartbeatHandler) Close() error {
 	hbh.cancelFunc()
+	log.Debug("calling close on heartbeat system")
 
 	return nil
 }

@@ -5,6 +5,8 @@ import (
 	"crypto/ecdsa"
 	"encoding/hex"
 	"fmt"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,6 +34,7 @@ import (
 	"github.com/libp2p/go-libp2p-core/peer"
 	"github.com/libp2p/go-libp2p-core/protocol"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	"github.com/libp2p/go-libp2p-pubsub/pb"
 )
 
 // ListenAddrWithIp4AndTcp defines the listening address with ip v.4 and TCP
@@ -52,8 +55,8 @@ const acceptMessagesInAdvanceDuration = 5 * time.Second //we are accepting the m
 const broadcastGoRoutines = 1000
 const timeBetweenPeerPrints = time.Second * 20
 const timeBetweenExternalLoggersCheck = time.Second * 20
-const defaultThresholdMinConnectedPeers = 3
 const minRangePortValue = 1025
+const noSignPolicy = pubsub.MessageSignaturePolicy(0) //should be used only in tests
 
 //TODO remove the header size of the message when commit d3c5ecd3a3e884206129d9f2a9a4ddfd5e7c8951 from
 // https://github.com/libp2p/go-libp2p-pubsub/pull/189/commits will be part of a new release
@@ -236,8 +239,10 @@ func createMessenger(
 }
 
 func (netMes *networkMessenger) createPubSub(withMessageSigning bool) error {
-	optsPS := []pubsub.Option{
-		pubsub.WithMessageSigning(withMessageSigning),
+	optsPS := make([]pubsub.Option, 0)
+	if !withMessageSigning {
+		log.Warn("signature verification is turned off in network messenger instance")
+		optsPS = append(optsPS, pubsub.WithMessageSignaturePolicy(noSignPolicy))
 	}
 
 	pubsub.TimeCacheDuration = pubsubTimeCacheDuration
@@ -351,7 +356,7 @@ func (netMes *networkMessenger) createConnectionMonitor(p2pConfig config.P2PConf
 	args := connMonitorFactory.ArgsConnectionMonitorFactory{
 		Reconnecter:                reconnecter,
 		Sharder:                    netMes.sharder,
-		ThresholdMinConnectedPeers: defaultThresholdMinConnectedPeers,
+		ThresholdMinConnectedPeers: p2pConfig.Node.ThresholdMinConnectedPeers,
 		TargetCount:                p2pConfig.Sharding.TargetPeerCount,
 	}
 	var err error
@@ -410,11 +415,14 @@ func (netMes *networkMessenger) printLogsStats() {
 		log.Debug("network connection status",
 			"known peers", len(netMes.Peers()),
 			"connected peers", len(netMes.ConnectedPeers()),
-			"intra shard validators", len(peersInfo.IntraShardValidators),
-			"intra shard observers", len(peersInfo.IntraShardObservers),
-			"cross shard validators", len(peersInfo.CrossShardValidators),
-			"cross shard observers", len(peersInfo.CrossShardObservers),
+			"intra shard validators", peersInfo.NumIntraShardValidators,
+			"intra shard observers", peersInfo.NumIntraShardObservers,
+			"cross shard validators", peersInfo.NumCrossShardValidators,
+			"cross shard observers", peersInfo.NumCrossShardObservers,
 			"unknown", len(peersInfo.UnknownPeers),
+			"current shard", peersInfo.SelfShardID,
+			"validators histogram", netMes.mapHistogram(peersInfo.NumValidatorsOnShard),
+			"observers histogram", netMes.mapHistogram(peersInfo.NumObserversOnShard),
 		)
 
 		connsPerSec := conns / uint32(timeBetweenPeerPrints/time.Second)
@@ -425,6 +433,30 @@ func (netMes *networkMessenger) printLogsStats() {
 			"disconnections/s", disconnsPerSec,
 		)
 	}
+}
+
+func (netMes *networkMessenger) mapHistogram(input map[uint32]int) string {
+	keys := make([]uint32, 0, len(input))
+	for shard := range input {
+		keys = append(keys, shard)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i] < keys[j]
+	})
+
+	vals := make([]string, 0, len(keys))
+	for _, key := range keys {
+		var shard string
+		if key == core.MetachainShardId {
+			shard = "meta"
+		} else {
+			shard = fmt.Sprintf("shard %d", key)
+		}
+
+		vals = append(vals, fmt.Sprintf("%s: %d", shard, input[key]))
+	}
+
+	return strings.Join(vals, ", ")
 }
 
 func (netMes *networkMessenger) checkExternalLoggers() {
@@ -688,7 +720,7 @@ func (netMes *networkMessenger) BroadcastOnChannelBlocking(channel string, topic
 
 func (netMes *networkMessenger) checkSendableData(buff []byte) error {
 	if len(buff) > maxSendBuffSize {
-		return p2p.ErrMessageTooLarge
+		return fmt.Errorf("%w, to be sent: %d, maximum: %d", p2p.ErrMessageTooLarge, len(buff), maxSendBuffSize)
 	}
 	if len(buff) == 0 {
 		return p2p.ErrEmptyBufferToSend
@@ -922,10 +954,28 @@ func (netMes *networkMessenger) SendToConnectedPeer(topic string, buff []byte, p
 		return nil
 	}
 
+	if peerID == netMes.ID() {
+		return netMes.sendDirectToSelf(topic, buffToSend)
+	}
+
 	err = netMes.ds.Send(topic, buffToSend, peerID)
 	netMes.debugger.AddOutgoingMessage(topic, uint64(len(buffToSend)), err != nil)
 
 	return err
+}
+
+func (netMes *networkMessenger) sendDirectToSelf(topic string, buff []byte) error {
+	msg := &pubsub.Message{
+		Message: &pubsub_pb.Message{
+			From:      netMes.ID().Bytes(),
+			Data:      buff,
+			Seqno:     netMes.ds.NextSeqno(),
+			TopicIDs:  []string{topic},
+			Signature: netMes.ID().Bytes(),
+		},
+	}
+
+	return netMes.directMessageHandler(msg, netMes.ID())
 }
 
 func (netMes *networkMessenger) directMessageHandler(message *pubsub.Message, fromConnectedPeer core.PeerID) error {
@@ -1019,12 +1069,15 @@ func (netMes *networkMessenger) GetConnectedPeersInfo() *p2p.ConnectedPeersInfo 
 	peers := netMes.p2pHost.Network().Peers()
 	connPeerInfo := &p2p.ConnectedPeersInfo{
 		UnknownPeers:         make([]string, 0),
-		IntraShardValidators: make([]string, 0),
-		IntraShardObservers:  make([]string, 0),
-		CrossShardValidators: make([]string, 0),
-		CrossShardObservers:  make([]string, 0),
+		IntraShardValidators: make(map[uint32][]string),
+		IntraShardObservers:  make(map[uint32][]string),
+		CrossShardValidators: make(map[uint32][]string),
+		CrossShardObservers:  make(map[uint32][]string),
+		NumObserversOnShard:  make(map[uint32]int),
+		NumValidatorsOnShard: make(map[uint32]int),
 	}
 	selfPeerInfo := netMes.peerShardResolver.GetPeerInfo(netMes.ID())
+	connPeerInfo.SelfShardID = selfPeerInfo.ShardID
 
 	for _, p := range peers {
 		conns := netMes.p2pHost.Network().ConnsToPeer(p)
@@ -1038,16 +1091,22 @@ func (netMes *networkMessenger) GetConnectedPeersInfo() *p2p.ConnectedPeersInfo 
 		case core.UnknownPeer:
 			connPeerInfo.UnknownPeers = append(connPeerInfo.UnknownPeers, connString)
 		case core.ValidatorPeer:
+			connPeerInfo.NumValidatorsOnShard[peerInfo.ShardID]++
 			if selfPeerInfo.ShardID != peerInfo.ShardID {
-				connPeerInfo.CrossShardValidators = append(connPeerInfo.CrossShardValidators, connString)
+				connPeerInfo.CrossShardValidators[peerInfo.ShardID] = append(connPeerInfo.CrossShardValidators[peerInfo.ShardID], connString)
+				connPeerInfo.NumCrossShardValidators++
 			} else {
-				connPeerInfo.IntraShardValidators = append(connPeerInfo.IntraShardValidators, connString)
+				connPeerInfo.IntraShardValidators[peerInfo.ShardID] = append(connPeerInfo.IntraShardValidators[peerInfo.ShardID], connString)
+				connPeerInfo.NumIntraShardValidators++
 			}
 		case core.ObserverPeer:
+			connPeerInfo.NumObserversOnShard[peerInfo.ShardID]++
 			if selfPeerInfo.ShardID != peerInfo.ShardID {
-				connPeerInfo.CrossShardObservers = append(connPeerInfo.CrossShardObservers, connString)
+				connPeerInfo.CrossShardObservers[peerInfo.ShardID] = append(connPeerInfo.CrossShardObservers[peerInfo.ShardID], connString)
+				connPeerInfo.NumCrossShardObservers++
 			} else {
-				connPeerInfo.IntraShardObservers = append(connPeerInfo.IntraShardObservers, connString)
+				connPeerInfo.IntraShardObservers[peerInfo.ShardID] = append(connPeerInfo.IntraShardObservers[peerInfo.ShardID], connString)
+				connPeerInfo.NumIntraShardObservers++
 			}
 		}
 	}

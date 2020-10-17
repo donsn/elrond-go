@@ -20,6 +20,7 @@ import (
 	"github.com/ElrondNetwork/elrond-go/core"
 	"github.com/ElrondNetwork/elrond-go/core/accumulator"
 	"github.com/ElrondNetwork/elrond-go/core/check"
+	"github.com/ElrondNetwork/elrond-go/core/forking"
 	"github.com/ElrondNetwork/elrond-go/crypto"
 	"github.com/ElrondNetwork/elrond-go/crypto/signing"
 	"github.com/ElrondNetwork/elrond-go/crypto/signing/ed25519"
@@ -49,6 +50,7 @@ import (
 	"github.com/ElrondNetwork/elrond-go/process"
 	"github.com/ElrondNetwork/elrond-go/process/economics"
 	procFactory "github.com/ElrondNetwork/elrond-go/process/factory"
+	"github.com/ElrondNetwork/elrond-go/process/headerCheck"
 	"github.com/ElrondNetwork/elrond-go/process/smartContract"
 	txProc "github.com/ElrondNetwork/elrond-go/process/transaction"
 	"github.com/ElrondNetwork/elrond-go/sharding"
@@ -72,6 +74,9 @@ var P2pBootstrapDelay = 5 * time.Second
 
 // InitialRating is used to initiate a node's info
 var InitialRating = uint32(50)
+
+// AdditionalGasLimit is the value that can be added on a transaction in the GasLimit
+var AdditionalGasLimit = uint64(999000)
 
 var log = logger.GetOrCreate("integrationtests")
 
@@ -335,6 +340,7 @@ func CreateStore(numOfShards uint32) dataRetriever.StorageService {
 	store.AddStorer(dataRetriever.BootstrapUnit, CreateMemUnit())
 	store.AddStorer(dataRetriever.StatusMetricsUnit, CreateMemUnit())
 	store.AddStorer(dataRetriever.MetaHdrNonceHashDataUnit, CreateMemUnit())
+	store.AddStorer(dataRetriever.ReceiptsUnit, CreateMemUnit())
 
 	for i := uint32(0); i < numOfShards; i++ {
 		hdrNonceHashDataUnit := dataRetriever.ShardHdrNonceHashDataUnit + dataRetriever.UnitType(i)
@@ -567,8 +573,8 @@ func CreateFullGenesisBlocks(
 				MinStepValue:                         "10",
 				MinStakeValue:                        "1",
 				UnBondPeriod:                         1,
-				AuctionEnableNonce:                   10000000,
-				StakeEnableNonce:                     0,
+				AuctionEnableEpoch:                   10000000,
+				StakeEnableEpoch:                     0,
 				NumRoundsWithoutBleed:                1,
 				MaximumPercentageToBleed:             1,
 				BleedPercentagePerRound:              1,
@@ -584,6 +590,12 @@ func CreateFullGenesisBlocks(
 			ShouldStartImportCalled: func() bool {
 				return false
 			},
+		},
+		GeneralConfig: &config.GeneralSettingsConfig{
+			BuiltInFunctionsEnableEpoch:    0,
+			SCDeployEnableEpoch:            0,
+			RelayedTransactionsEnableEpoch: 0,
+			PenalizedTooMuchGasEnableEpoch: 0,
 		},
 	}
 
@@ -650,8 +662,8 @@ func CreateGenesisMetaBlock(
 				MinStepValue:                         "10",
 				MinStakeValue:                        "1",
 				UnBondPeriod:                         1,
-				AuctionEnableNonce:                   10000000,
-				StakeEnableNonce:                     0,
+				AuctionEnableEpoch:                   10000000,
+				StakeEnableEpoch:                     0,
 				NumRoundsWithoutBleed:                1,
 				MaximumPercentageToBleed:             1,
 				BleedPercentagePerRound:              1,
@@ -663,6 +675,12 @@ func CreateGenesisMetaBlock(
 		BlockSignKeyGen:    &mock.KeyGenMock{},
 		ImportStartHandler: &mock.ImportStartHandlerStub{},
 		GenesisNodePrice:   big.NewInt(1000),
+		GeneralConfig: &config.GeneralSettingsConfig{
+			BuiltInFunctionsEnableEpoch:    0,
+			SCDeployEnableEpoch:            0,
+			RelayedTransactionsEnableEpoch: 0,
+			PenalizedTooMuchGasEnableEpoch: 0,
+		},
 	}
 
 	if shardCoordinator.SelfId() != core.MetachainShardId {
@@ -686,7 +704,7 @@ func CreateGenesisMetaBlock(
 	nodesHandler, err := mock.NewNodesHandlerMock(nodesSetup)
 	log.LogIfError(err)
 
-	metaHdr, err := genesisProcess.CreateMetaGenesisBlock(argsMetaGenesis, nodesHandler, shardCoordinator.SelfId())
+	metaHdr, _, err := genesisProcess.CreateMetaGenesisBlock(argsMetaGenesis, nodesHandler, shardCoordinator.SelfId())
 	log.LogIfError(err)
 
 	log.Info("meta genesis root hash", "hash", hex.EncodeToString(metaHdr.GetRootHash()))
@@ -847,18 +865,18 @@ func CreateSimpleTxProcessor(accnts state.AccountsAdapter) process.TransactionPr
 			CheckValidityTxValuesCalled: func(tx process.TransactionWithFeeHandler) error {
 				return nil
 			},
-			ComputeFeeCalled: func(tx process.TransactionWithFeeHandler) *big.Int {
+			ComputeMoveBalanceFeeCalled: func(tx process.TransactionWithFeeHandler) *big.Int {
 				fee := big.NewInt(0).SetUint64(tx.GetGasLimit())
 				fee.Mul(fee, big.NewInt(0).SetUint64(tx.GetGasPrice()))
 
 				return fee
 			},
 		},
-		ReceiptForwarder:  &mock.IntermediateTransactionHandlerMock{},
-		BadTxForwarder:    &mock.IntermediateTransactionHandlerMock{},
-		ArgsParser:        smartContract.NewArgumentParser(),
-		ScrForwarder:      &mock.IntermediateTransactionHandlerMock{},
-		DisabledRelayedTx: false,
+		ReceiptForwarder: &mock.IntermediateTransactionHandlerMock{},
+		BadTxForwarder:   &mock.IntermediateTransactionHandlerMock{},
+		ArgsParser:       smartContract.NewArgumentParser(),
+		ScrForwarder:     &mock.IntermediateTransactionHandlerMock{},
+		EpochNotifier:    forking.NewGenericEpochNotifier(),
 	}
 	txProcessor, _ := txProc.NewTxProcessor(argsNewTxProcessor)
 
@@ -1099,6 +1117,23 @@ func extractUint64ValueFromTxHandler(txHandler data.TransactionHandler) uint64 {
 	return binary.BigEndian.Uint64(buff)
 }
 
+// CreateHeaderIntegrityVerifier outputs a valid header integrity verifier handler
+func CreateHeaderIntegrityVerifier() process.HeaderIntegrityVerifier {
+	headerVersioning, _ := headerCheck.NewHeaderIntegrityVerifier(
+		ChainID,
+		[]config.VersionByEpochs{
+			{
+				StartEpoch: 0,
+				Version:    "*",
+			},
+		},
+		"default",
+		testscommon.NewCacherMock(),
+	)
+
+	return headerVersioning
+}
+
 // CreateNodes creates multiple nodes in different shards
 func CreateNodes(
 	numOfShards int,
@@ -1126,6 +1161,33 @@ func CreateNodes(
 	return nodes
 }
 
+// CreateNodesWithBLSSigVerifier creates multiple nodes in different shards
+func CreateNodesWithBLSSigVerifier(
+	numOfShards int,
+	nodesPerShard int,
+	numMetaChainNodes int,
+	serviceID string,
+) []*TestProcessorNode {
+	nodes := make([]*TestProcessorNode, numOfShards*nodesPerShard+numMetaChainNodes)
+
+	idx := 0
+	for shardId := uint32(0); shardId < uint32(numOfShards); shardId++ {
+		for j := 0; j < nodesPerShard; j++ {
+			n := NewTestProcessorNodeWithBLSSigVerifier(uint32(numOfShards), shardId, shardId, serviceID)
+			nodes[idx] = n
+			idx++
+		}
+	}
+
+	for i := 0; i < numMetaChainNodes; i++ {
+		metaNode := NewTestProcessorNodeWithBLSSigVerifier(uint32(numOfShards), core.MetachainShardId, 0, serviceID)
+		idx = i + numOfShards*nodesPerShard
+		nodes[idx] = metaNode
+	}
+
+	return nodes
+}
+
 // CreateNodesWithFullGenesis creates multiple nodes in different shards
 func CreateNodesWithFullGenesis(
 	numOfShards int,
@@ -1133,51 +1195,74 @@ func CreateNodesWithFullGenesis(
 	numMetaChainNodes int,
 	serviceID string,
 	genesisFile string,
-) []*TestProcessorNode {
+) ([]*TestProcessorNode, *TestProcessorNode) {
 	nodes := make([]*TestProcessorNode, numOfShards*nodesPerShard+numMetaChainNodes)
+
+	hardforkStarter := createGenesisNode(serviceID, genesisFile, uint32(numOfShards), 0, nil)
 
 	idx := 0
 	for shardId := uint32(0); shardId < uint32(numOfShards); shardId++ {
 		for j := 0; j < nodesPerShard; j++ {
-			accountParser := &mock.AccountsParserStub{}
-			smartContractParser, _ := parsing.NewSmartContractsParser(
+			nodes[idx] = createGenesisNode(
+				serviceID,
 				genesisFile,
-				TestAddressPubkeyConverter,
-				&mock.KeyGenMock{},
-			)
-			n := NewTestProcessorNodeWithFullGenesis(
 				uint32(numOfShards),
 				shardId,
-				shardId,
-				serviceID,
-				accountParser,
-				smartContractParser,
+				hardforkStarter.NodeKeys.Pk,
 			)
-			nodes[idx] = n
 			idx++
 		}
 	}
 
 	for i := 0; i < numMetaChainNodes; i++ {
-		accountParser := &mock.AccountsParserStub{}
-		smartContractParser, _ := parsing.NewSmartContractsParser(
+		idx = i + numOfShards*nodesPerShard
+		nodes[idx] = createGenesisNode(
+			serviceID,
 			genesisFile,
-			TestAddressPubkeyConverter,
-			&mock.KeyGenMock{},
-		)
-		metaNode := NewTestProcessorNodeWithFullGenesis(
 			uint32(numOfShards),
 			core.MetachainShardId,
-			0,
-			serviceID,
-			accountParser,
-			smartContractParser,
+			hardforkStarter.NodeKeys.Pk,
 		)
-		idx = i + numOfShards*nodesPerShard
-		nodes[idx] = metaNode
 	}
 
-	return nodes
+	return nodes, hardforkStarter
+}
+
+func createGenesisNode(
+	serviceID string,
+	genesisFile string,
+	numOfShards uint32,
+	shardId uint32,
+	hardforkPk crypto.PublicKey,
+) *TestProcessorNode {
+	accountParser := &mock.AccountsParserStub{}
+	smartContractParser, _ := parsing.NewSmartContractsParser(
+		genesisFile,
+		TestAddressPubkeyConverter,
+		&mock.KeyGenMock{},
+	)
+	txSignShardID := shardId
+	if shardId == core.MetachainShardId {
+		txSignShardID = 0
+	}
+
+	strPk := ""
+	if !check.IfNil(hardforkPk) {
+		buff, err := hardforkPk.ToByteArray()
+		log.LogIfError(err)
+
+		strPk = hex.EncodeToString(buff)
+	}
+
+	return NewTestProcessorNodeWithFullGenesis(
+		numOfShards,
+		shardId,
+		txSignShardID,
+		serviceID,
+		accountParser,
+		smartContractParser,
+		strPk,
+	)
 }
 
 // CreateNodesWithCustomStateCheckpointModulus creates multiple nodes in different shards with custom stateCheckpointModulus
@@ -1294,12 +1379,14 @@ func CreateSendersWithInitialBalances(
 }
 
 // CreateAndSendTransaction will generate a transaction with provided parameters, sign it with the provided
-// node's tx sign private key and send it on the transaction topic
+// node's tx sign private key and send it on the transaction topic using the correct node that can send the transaction
 func CreateAndSendTransaction(
 	node *TestProcessorNode,
+	nodes []*TestProcessorNode,
 	txValue *big.Int,
 	rcvAddress []byte,
 	txData string,
+	additionalGasLimit uint64,
 ) {
 	tx := &transaction.Transaction{
 		Nonce:    node.OwnAccount.Nonce,
@@ -1308,17 +1395,31 @@ func CreateAndSendTransaction(
 		RcvAddr:  rcvAddress,
 		Data:     []byte(txData),
 		GasPrice: MinTxGasPrice,
-		GasLimit: MinTxGasLimit*1000 + uint64(len(txData)),
+		GasLimit: MinTxGasLimit + uint64(len(txData)) + additionalGasLimit,
 		ChainID:  ChainID,
 		Version:  MinTransactionVersion,
 	}
 
 	txBuff, _ := tx.GetDataForSigning(TestAddressPubkeyConverter, TestTxSignMarshalizer)
 	tx.Signature, _ = node.OwnAccount.SingleSigner.Sign(node.OwnAccount.SkTxSign, txBuff)
+	senderShardID := node.ShardCoordinator.ComputeId(node.OwnAccount.Address)
 
-	_, err := node.SendTransaction(tx)
-	if err != nil {
-		log.Warn("could not create transaction", "address", node.OwnAccount.Address, "error", err)
+	wasSend := false
+	for _, senderNode := range nodes {
+		if senderNode.ShardCoordinator.SelfId() != senderShardID {
+			continue
+		}
+
+		_, err := senderNode.SendTransaction(tx)
+		if err != nil {
+			log.Error("could not send transaction", "address", node.OwnAccount.Address, "error", err)
+		}
+		wasSend = true
+		break
+	}
+
+	if !wasSend {
+		log.Error("no suitable node found to send the provided transaction", "address", node.OwnAccount.Address)
 	}
 	node.OwnAccount.Nonce++
 }

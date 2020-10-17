@@ -7,12 +7,13 @@ import (
 	"github.com/ElrondNetwork/elrond-go/core"
 	"github.com/ElrondNetwork/elrond-go/data"
 	"github.com/ElrondNetwork/elrond-go/data/block"
+	"github.com/ElrondNetwork/elrond-go/data/state"
 )
 
 // TriggerHandler defines the functionalities for an start of epoch trigger
 type TriggerHandler interface {
 	Close() error
-	ForceEpochStart(round uint64) error
+	ForceEpochStart()
 	IsEpochStart() bool
 	Epoch() uint32
 	MetaEpoch() uint32
@@ -87,6 +88,12 @@ type Notifier interface {
 type ValidatorStatisticsProcessorHandler interface {
 	Process(info data.ShardValidatorInfoHandler) error
 	Commit() ([]byte, error)
+	IsInterfaceNil() bool
+}
+
+// ValidatorInfoCreator defines the methods to create a validator info
+type ValidatorInfoCreator interface {
+	PeerAccountToValidatorInfo(peerAccount state.PeerAccountHandler) *state.ValidatorInfo
 	IsInterfaceNil() bool
 }
 

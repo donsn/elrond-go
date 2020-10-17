@@ -23,7 +23,6 @@ copyConfig() {
   cp ./filegen/"$CONFIGGENERATOROUTPUTDIR"/genesis.json ./node/config
   cp ./filegen/"$CONFIGGENERATOROUTPUTDIR"/nodesSetup.json ./node/config
   cp ./filegen/"$CONFIGGENERATOROUTPUTDIR"/*.pem ./node/config #there might be more .pem files there
-  cp ./filegen/"$CONFIGGENERATOROUTPUTDIR"/genesisSmartContracts.json ./node/config
   echo "Configuration files copied from the configuration generator to the working directories of the executables."
   popd
 }
@@ -59,6 +58,7 @@ copyNodeConfig() {
   cp $NODEDIR/config/p2p.toml ./node/config
   cp $NODEDIR/config/gasSchedule.toml ./node/config
   cp $NODEDIR/config/systemSmartContractsConfig.toml ./node/config
+  cp $NODEDIR/config/genesisSmartContracts.json ./node/config
   mkdir ./node/config/genesisContracts -p
   cp $NODEDIR/config/genesisContracts/*.* ./node/config/genesisContracts
 
@@ -80,10 +80,10 @@ updateNodeConfig() {
   let startTime="$(date +%s) + $GENESIS_DELAY"
   updateJSONValue nodesSetup_edit.json "startTime" "$startTime"
 
-  updateJSONValue nodesSetup_edit.json "minTransactionVersion" "123"
+  updateJSONValue nodesSetup_edit.json "minTransactionVersion" "1"
 
 	if [ $ALWAYS_NEW_CHAINID -eq 1 ]; then
-		updateJSONValue nodesSetup_edit.json "chainID" "\"$startTime\""
+		updateJSONValue nodesSetup_edit.json "chainID" "\"local-testnet"\"
 	fi
 
   cp nodesSetup_edit.json nodesSetup.json

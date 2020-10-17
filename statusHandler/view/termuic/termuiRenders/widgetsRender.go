@@ -23,10 +23,13 @@ type WidgetsRender struct {
 	chainInfo    *widgets.Table
 	blockInfo    *widgets.Table
 
+	epochLoad   *widgets.Gauge
 	cpuLoad     *widgets.Gauge
 	memoryLoad  *widgets.Gauge
 	networkRecv *widgets.Gauge
 	networkSent *widgets.Gauge
+
+	networkBytesInEpoch *widgets.Gauge
 
 	presenter view.Presenter
 }
@@ -60,10 +63,12 @@ func (wr *WidgetsRender) initWidgets() {
 	wr.blockInfo = widgets.NewTable()
 	wr.blockInfo.Rows = [][]string{{"", "", ""}}
 
+	wr.epochLoad = widgets.NewGauge()
 	wr.cpuLoad = widgets.NewGauge()
 	wr.memoryLoad = widgets.NewGauge()
 	wr.networkRecv = widgets.NewGauge()
 	wr.networkSent = widgets.NewGauge()
+	wr.networkBytesInEpoch = widgets.NewGauge()
 
 	wr.lLog = widgets.NewList()
 }
@@ -75,13 +80,20 @@ func (wr *WidgetsRender) setGrid() {
 		ui.NewRow(10.0/22, wr.instanceInfo),
 		ui.NewRow(12.0/22, wr.chainInfo))
 
+	colNetworkRecv := ui.NewCol(1.0/2, wr.networkRecv)
+	colNetworkSent := ui.NewCol(1.0/2, wr.networkSent)
+
+	colCpuLoad := ui.NewCol(1.0/2, wr.cpuLoad)
+	colMemoryLoad := ui.NewCol(1.0/2, wr.memoryLoad)
+
 	gridRight := ui.NewGrid()
 	gridRight.Set(
 		ui.NewRow(10.0/22, wr.blockInfo),
-		ui.NewRow(3.0/22, wr.cpuLoad),
-		ui.NewRow(3.0/22, wr.memoryLoad),
-		ui.NewRow(3.0/22, wr.networkRecv),
-		ui.NewRow(3.0/22, wr.networkSent))
+		ui.NewRow(3.0/22, colCpuLoad, colMemoryLoad),
+		ui.NewRow(3.0/22, wr.epochLoad),
+		ui.NewRow(3.0/22, wr.networkBytesInEpoch),
+		ui.NewRow(3.0/22, colNetworkSent, colNetworkRecv),
+	)
 
 	gridBottom := ui.NewGrid()
 	gridBottom.Set(ui.NewRow(1.0, wr.lLog))
@@ -274,8 +286,8 @@ func (wr *WidgetsRender) prepareBlockInfo() {
 
 	shardId := wr.presenter.GetShardId()
 	if shardId != uint64(core.MetachainShardId) {
-		highestFinalBlockInShard := wr.presenter.GetHighestFinalBlockInShard()
-		rows[4][0] += fmt.Sprintf(", final nonce: %d", highestFinalBlockInShard)
+		highestFinalBlock := wr.presenter.GetHighestFinalBlock()
+		rows[4][0] += fmt.Sprintf(", final nonce: %d", highestFinalBlock)
 	}
 
 	consensusState := wr.presenter.GetConsensusState()
@@ -326,6 +338,23 @@ func (wr *WidgetsRender) prepareLogLines(logData []string, size int) []string {
 	return logData
 }
 
+func fitStringToWidth(original string, maxWidth int) string {
+	suffixString := "..."
+	numExtraPadding := 2
+
+	if len(original)+numExtraPadding < maxWidth {
+		return original
+	}
+
+	nothingToShow := maxWidth <= len(suffixString)+numExtraPadding ||
+		len(original)-len(suffixString)-numExtraPadding < 0
+	if nothingToShow {
+		return ""
+	}
+
+	return original[:maxWidth-len(suffixString)-numExtraPadding] + suffixString
+}
+
 func (wr *WidgetsRender) prepareLoads() {
 	cpuLoadPercent := wr.presenter.GetCpuLoadPercent()
 	wr.cpuLoad.Title = "CPU load"
@@ -336,23 +365,39 @@ func (wr *WidgetsRender) prepareLoads() {
 	memUsed := wr.presenter.GetMemUsedByNode()
 	wr.memoryLoad.Title = "Memory load"
 	wr.memoryLoad.Percent = int(memLoadPercent)
-	wr.memoryLoad.Label = fmt.Sprintf("%d%% / used: %s / total: %s", memLoadPercent, core.ConvertBytes(memUsed), core.ConvertBytes(memTotalMemoryBytes))
+	str := fmt.Sprintf("%d%% / used: %s / total: %s", memLoadPercent, core.ConvertBytes(memUsed), core.ConvertBytes(memTotalMemoryBytes))
+	wr.memoryLoad.Label = fitStringToWidth(str, wr.memoryLoad.Size().X)
 
 	recvLoad := wr.presenter.GetNetworkRecvPercent()
 	recvBps := wr.presenter.GetNetworkRecvBps()
 	recvBpsPeak := wr.presenter.GetNetworkRecvBpsPeak()
-	wr.networkRecv.Title = "Network - recv:"
+	wr.networkRecv.Title = "Network - received per host:"
 	wr.networkRecv.Percent = int(recvLoad)
-	wr.networkRecv.Label = fmt.Sprintf("%d%% / rate: %s/s / peak rate: %s/s",
-		recvLoad, core.ConvertBytes(recvBps), core.ConvertBytes(recvBpsPeak))
+	str = fmt.Sprintf("%d%% / current: %s/s / peak: %s/s", recvLoad, core.ConvertBytes(recvBps), core.ConvertBytes(recvBpsPeak))
+	wr.networkRecv.Label = fitStringToWidth(str, wr.networkRecv.Size().X)
 
 	sentLoad := wr.presenter.GetNetworkSentPercent()
 	sentBps := wr.presenter.GetNetworkSentBps()
 	sentBpsPeak := wr.presenter.GetNetworkSentBpsPeak()
-	wr.networkSent.Title = "Network - sent:"
+	wr.networkSent.Title = "Network - sent per host:"
 	wr.networkSent.Percent = int(sentLoad)
-	wr.networkSent.Label = fmt.Sprintf("%d%% / rate: %s/s / peak rate: %s/s",
-		sentLoad, core.ConvertBytes(sentBps), core.ConvertBytes(sentBpsPeak))
+	str = fmt.Sprintf("%d%% / current: %s/s / peak: %s/s", sentLoad, core.ConvertBytes(sentBps), core.ConvertBytes(sentBpsPeak))
+	wr.networkSent.Label = fitStringToWidth(str, wr.networkSent.Size().X)
+
+	// epoch info
+	currentEpochRound, currentEpochFinishRound, epochLoadPercent, remainingTime := wr.presenter.GetEpochInfo()
+	wr.epochLoad.Title = "Epoch - info:"
+	wr.epochLoad.Percent = epochLoadPercent
+	str = fmt.Sprintf("%d / %d rounds (~%sremaining)", currentEpochRound, currentEpochFinishRound, remainingTime)
+	wr.epochLoad.Label = fitStringToWidth(str, wr.epochLoad.Size().X)
+
+	totalBytesSentInEpoch := wr.presenter.GetNetworkSentBytesInEpoch()
+	totalBytesReceivedInEpoch := wr.presenter.GetNetworkReceivedBytesInEpoch()
+
+	wr.networkBytesInEpoch.Title = "Epoch - traffic per host:"
+	wr.networkBytesInEpoch.Percent = 0
+	str = fmt.Sprintf("sent: %s / received: %s", core.ConvertBytes(totalBytesSentInEpoch), core.ConvertBytes(totalBytesReceivedInEpoch))
+	wr.networkBytesInEpoch.Label = fitStringToWidth(str, wr.networkBytesInEpoch.Size().X)
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

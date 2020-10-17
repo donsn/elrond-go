@@ -173,7 +173,7 @@ type ChannelLoadBalancer interface {
 
 // DirectSender defines a component that can send direct messages to connected peers
 type DirectSender interface {
-	NextSeqno(counter *uint64) []byte
+	NextSeqno() []byte
 	Send(topic string, buff []byte, peer core.PeerID) error
 	IsInterfaceNil() bool
 }
@@ -216,11 +216,18 @@ type PeerShardResolver interface {
 
 // ConnectedPeersInfo represents the DTO structure used to output the metrics for connected peers
 type ConnectedPeersInfo struct {
-	UnknownPeers         []string
-	IntraShardValidators []string
-	IntraShardObservers  []string
-	CrossShardValidators []string
-	CrossShardObservers  []string
+	SelfShardID             uint32
+	UnknownPeers            []string
+	IntraShardValidators    map[uint32][]string
+	IntraShardObservers     map[uint32][]string
+	CrossShardValidators    map[uint32][]string
+	CrossShardObservers     map[uint32][]string
+	NumValidatorsOnShard    map[uint32]int
+	NumObserversOnShard     map[uint32]int
+	NumIntraShardValidators int
+	NumIntraShardObservers  int
+	NumCrossShardValidators int
+	NumCrossShardObservers  int
 }
 
 // NetworkShardingCollector defines the updating methods used by the network sharding component

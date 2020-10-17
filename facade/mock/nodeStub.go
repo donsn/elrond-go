@@ -22,6 +22,7 @@ type NodeStub struct {
 	CreateTransactionHandler   func(nonce uint64, value string, receiverHex string, senderHex string, gasPrice uint64,
 		gasLimit uint64, data []byte, signatureHex string, chainID string, version uint32) (*transaction.Transaction, []byte, error)
 	ValidateTransactionHandler                     func(tx *transaction.Transaction) error
+	ValidateTransactionForSimulationCalled         func(tx *transaction.Transaction) error
 	GetTransactionHandler                          func(hash string) (*transaction.ApiTransactionResult, error)
 	SendBulkTransactionsHandler                    func(txs []*transaction.Transaction) (uint64, error)
 	GetAccountHandler                              func(address string) (state.UserAccountHandler, error)
@@ -30,13 +31,23 @@ type NodeStub struct {
 	GenerateAndSendBulkTransactionsOneByOneHandler func(destination string, value *big.Int, nrTransactions uint64) error
 	GetHeartbeatsHandler                           func() []data.PubKeyHeartbeat
 	ValidatorStatisticsApiCalled                   func() (map[string]*state.ValidatorApiResponse, error)
-	DirectTriggerCalled                            func(epoch uint32) error
+	DirectTriggerCalled                            func(epoch uint32, withEarlyEndOfEpoch bool) error
 	IsSelfTriggerCalled                            func() bool
 	GetQueryHandlerCalled                          func(name string) (debug.QueryHandler, error)
 	GetValueForKeyCalled                           func(address string, key string) (string, error)
 	GetPeerInfoCalled                              func(pid string) ([]core.QueryP2PPeerInfo, error)
 	GetBlockByHashCalled                           func(hash string, withTxs bool) (*block.APIBlock, error)
 	GetBlockByNonceCalled                          func(nonce uint64, withTxs bool) (*block.APIBlock, error)
+	GetUsernameCalled                              func(address string) (string, error)
+}
+
+// GetUsername -
+func (ns *NodeStub) GetUsername(address string) (string, error) {
+	if ns.GetUsernameCalled != nil {
+		return ns.GetUsernameCalled(address)
+	}
+
+	return "", nil
 }
 
 // GetValueForKey -
@@ -85,9 +96,14 @@ func (ns *NodeStub) CreateTransaction(nonce uint64, value string, receiverHex st
 	return ns.CreateTransactionHandler(nonce, value, receiverHex, senderHex, gasPrice, gasLimit, data, signatureHex, chainID, version)
 }
 
-//ValidateTransaction --
+//ValidateTransaction -
 func (ns *NodeStub) ValidateTransaction(tx *transaction.Transaction) error {
 	return ns.ValidateTransactionHandler(tx)
+}
+
+// ValidateTransactionForSimulation -
+func (ns *NodeStub) ValidateTransactionForSimulation(tx *transaction.Transaction) error {
+	return ns.ValidateTransactionForSimulationCalled(tx)
 }
 
 // GetTransaction -
@@ -116,8 +132,8 @@ func (ns *NodeStub) ValidatorStatisticsApi() (map[string]*state.ValidatorApiResp
 }
 
 // DirectTrigger -
-func (ns *NodeStub) DirectTrigger(epoch uint32) error {
-	return ns.DirectTriggerCalled(epoch)
+func (ns *NodeStub) DirectTrigger(epoch uint32, withEarlyEndOfEpoch bool) error {
+	return ns.DirectTriggerCalled(epoch, withEarlyEndOfEpoch)
 }
 
 // IsSelfTrigger -

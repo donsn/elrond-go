@@ -57,11 +57,18 @@ func (sc *scProcessor) prepareGasProvided(tx data.TransactionHandler) (uint64, e
 	return tx.GetGasLimit() - gasForTxData, nil
 }
 
-func (sc *scProcessor) createVMCallInput(tx data.TransactionHandler) (*vmcommon.ContractCallInput, error) {
+func (sc *scProcessor) createVMCallInput(
+	tx data.TransactionHandler,
+	txHash []byte,
+	builtInFuncCall bool,
+) (*vmcommon.ContractCallInput, error) {
 	callType := determineCallType(tx)
-	txData := prependCallbackToTxDataIfAsyncCall(tx.GetData(), callType)
+	txData := string(tx.GetData())
+	if !builtInFuncCall {
+		txData = string(prependCallbackToTxDataIfAsyncCall(tx.GetData(), callType))
+	}
 
-	function, arguments, err := sc.argsParser.ParseCallData(string(txData))
+	function, arguments, err := sc.argsParser.ParseCallData(txData)
 	if err != nil {
 		return nil, err
 	}
@@ -71,6 +78,14 @@ func (sc *scProcessor) createVMCallInput(tx data.TransactionHandler) (*vmcommon.
 	vmCallInput.CallType = callType
 	vmCallInput.RecipientAddr = tx.GetRcvAddr()
 	vmCallInput.Function = function
+	vmCallInput.CurrentTxHash = txHash
+
+	scr, isSCR := tx.(*smartContractResult.SmartContractResult)
+	if isSCR {
+		vmCallInput.OriginalTxHash = scr.GetOriginalTxHash()
+	} else {
+		vmCallInput.OriginalTxHash = txHash
+	}
 
 	err = sc.initializeVMInputFromTx(&vmCallInput.VMInput, tx)
 	if err != nil {

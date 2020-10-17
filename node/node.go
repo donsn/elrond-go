@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	logger "github.com/ElrondNetwork/elrond-go-logger"
+	"github.com/ElrondNetwork/elrond-go-logger"
 	"github.com/ElrondNetwork/elrond-go/config"
 	"github.com/ElrondNetwork/elrond-go/consensus"
 	"github.com/ElrondNetwork/elrond-go/consensus/chronology"
@@ -20,7 +20,7 @@ import (
 	"github.com/ElrondNetwork/elrond-go/consensus/spos/sposFactory"
 	"github.com/ElrondNetwork/elrond-go/core"
 	"github.com/ElrondNetwork/elrond-go/core/check"
-	"github.com/ElrondNetwork/elrond-go/core/fullHistory"
+	"github.com/ElrondNetwork/elrond-go/core/dblookupext"
 	"github.com/ElrondNetwork/elrond-go/core/indexer"
 	"github.com/ElrondNetwork/elrond-go/core/partitioning"
 	"github.com/ElrondNetwork/elrond-go/crypto"
@@ -127,7 +127,7 @@ type Node struct {
 	blocksBlackListHandler  process.TimeCacher
 	bootStorer              process.BootStorer
 	requestedItemsHandler   dataRetriever.RequestedItemsHandler
-	headerSigVerifier       spos.RandSeedVerifier
+	headerSigVerifier       consensus.HeaderSigVerifier
 	headerIntegrityVerifier spos.HeaderIntegrityVerifier
 
 	chainID               []byte
@@ -151,11 +151,12 @@ type Node struct {
 	mutQueryHandlers syncGo.RWMutex
 	queryHandlers    map[string]debug.QueryHandler
 
-	heartbeatHandler   *componentHandler.HeartbeatHandler
-	peerHonestyHandler consensus.PeerHonestyHandler
+	heartbeatHandler        HeartbeatHandler
+	peerHonestyHandler      consensus.PeerHonestyHandler
+	fallbackHeaderValidator consensus.FallbackHeaderValidator
 
 	watchdog          core.WatchdogTimer
-	historyRepository fullHistory.HistoryRepository
+	historyRepository dblookupext.HistoryRepository
 }
 
 // ApplyOptions can set up different configurable options of a Node instance
@@ -340,6 +341,8 @@ func (n *Node) StartConsensus() error {
 		EpochStartRegistrationHandler: n.epochStartRegistrationHandler,
 		AntifloodHandler:              n.inputAntifloodHandler,
 		PeerHonestyHandler:            n.peerHonestyHandler,
+		HeaderSigVerifier:             n.headerSigVerifier,
+		FallbackHeaderValidator:       n.fallbackHeaderValidator,
 	}
 
 	consensusDataContainer, err := spos.NewConsensusCore(
@@ -386,29 +389,33 @@ func (n *Node) addCloserInstances(closers ...update.Closer) error {
 
 // GetBalance gets the balance for a specific address
 func (n *Node) GetBalance(address string) (*big.Int, error) {
-	if check.IfNil(n.addressPubkeyConverter) || check.IfNil(n.accounts) {
-		return nil, errors.New("initialize AccountsAdapter and PubkeyConverter first")
-	}
-
-	addr, err := n.addressPubkeyConverter.Decode(address)
+	account, err := n.getAccountHandler(address)
 	if err != nil {
-		return nil, errors.New("invalid address, could not decode from: " + err.Error())
-	}
-	accWrp, err := n.accounts.GetExistingAccount(addr)
-	if err != nil {
-		return nil, errors.New("could not fetch sender address from provided param: " + err.Error())
+		return nil, err
 	}
 
-	if check.IfNil(accWrp) {
-		return big.NewInt(0), nil
-	}
-
-	account, ok := accWrp.(state.UserAccountHandler)
+	userAccount, ok := n.castAccountToUserAccount(account)
 	if !ok {
 		return big.NewInt(0), nil
 	}
 
-	return account.GetBalance(), nil
+	return userAccount.GetBalance(), nil
+}
+
+// GetUsername gets the username for a specific address
+func (n *Node) GetUsername(address string) (string, error) {
+	account, err := n.getAccountHandler(address)
+	if err != nil {
+		return "", err
+	}
+
+	userAccount, ok := n.castAccountToUserAccount(account)
+	if !ok {
+		return "", ErrAccountNotFound
+	}
+
+	username := userAccount.GetUserName()
+	return string(username), nil
 }
 
 // GetValueForKey will return the value for a key from a given account
@@ -418,33 +425,43 @@ func (n *Node) GetValueForKey(address string, key string) (string, error) {
 		return "", fmt.Errorf("invalid key: %w", err)
 	}
 
-	if check.IfNil(n.addressPubkeyConverter) || check.IfNil(n.accounts) {
-		return "", fmt.Errorf("initialize AccountsAdapter and PubkeyConverter first")
+	account, err := n.getAccountHandler(address)
+	if err != nil {
+		return "", err
 	}
 
-	addr, err := n.addressPubkeyConverter.Decode(address)
-	if err != nil {
-		return "", fmt.Errorf("invalid address, could not decode from: %w", err)
-	}
-	accWrp, err := n.accounts.GetExistingAccount(addr)
-	if err != nil {
-		return "", fmt.Errorf("could not fetch sender address from provided param: %w", err)
-	}
-
-	if check.IfNil(accWrp) {
-		return "", fmt.Errorf("account not found")
-	}
-	account, ok := accWrp.(state.UserAccountHandler)
+	userAccount, ok := n.castAccountToUserAccount(account)
 	if !ok {
-		return "", fmt.Errorf("account not found - cannot convert to UserAccountHandler")
+		return "", ErrAccountNotFound
 	}
 
-	valueBytes, err := account.DataTrieTracker().RetrieveValue(keyBytes)
+	valueBytes, err := userAccount.DataTrieTracker().RetrieveValue(keyBytes)
 	if err != nil {
 		return "", fmt.Errorf("fetching value error: %w", err)
 	}
 
 	return hex.EncodeToString(valueBytes), nil
+}
+
+func (n *Node) getAccountHandler(address string) (state.AccountHandler, error) {
+	if check.IfNil(n.addressPubkeyConverter) || check.IfNil(n.accounts) {
+		return nil, errors.New("initialize AccountsAdapter and PubkeyConverter first")
+	}
+
+	addr, err := n.addressPubkeyConverter.Decode(address)
+	if err != nil {
+		return nil, errors.New("invalid address, could not decode from: " + err.Error())
+	}
+	return n.accounts.GetExistingAccount(addr)
+}
+
+func (n *Node) castAccountToUserAccount(ah state.AccountHandler) (state.UserAccountHandler, bool) {
+	if check.IfNil(ah) {
+		return nil, false
+	}
+
+	account, ok := ah.(state.UserAccountHandler)
+	return account, ok
 }
 
 // createChronologyHandler method creates a chronology object
@@ -801,6 +818,36 @@ func (n *Node) sendBulkTransactions(txs []*transaction.Transaction) {
 
 // ValidateTransaction will validate a transaction
 func (n *Node) ValidateTransaction(tx *transaction.Transaction) error {
+	err := n.checkSenderIsInShard(tx)
+	if err != nil {
+		return err
+	}
+
+	txValidator, intTx, err := n.commonTransactionValidation(tx)
+	if err != nil {
+		return err
+	}
+
+	return txValidator.CheckTxValidity(intTx)
+}
+
+// ValidateTransactionForSimulation will validate a transaction for use in transaction simulation process
+func (n *Node) ValidateTransactionForSimulation(tx *transaction.Transaction) error {
+	txValidator, intTx, err := n.commonTransactionValidation(tx)
+	if err != nil {
+		return err
+	}
+
+	err = txValidator.CheckTxValidity(intTx)
+	if errors.Is(err, process.ErrAccountNotFound) {
+		// we allow the broadcast of provided transaction even if that transaction is not targeted on the current shard
+		return nil
+	}
+
+	return err
+}
+
+func (n *Node) commonTransactionValidation(tx *transaction.Transaction) (process.TxValidator, process.TxValidatorHandler, error) {
 	txValidator, err := dataValidators.NewTxValidator(
 		n.accounts,
 		n.shardCoordinator,
@@ -809,12 +856,14 @@ func (n *Node) ValidateTransaction(tx *transaction.Transaction) error {
 		core.MaxTxNonceDeltaAllowed,
 	)
 	if err != nil {
-		return nil
+		log.Warn("node.ValidateTransaction: can not instantiate a TxValidator",
+			"error", err)
+		return nil, nil, err
 	}
 
 	marshalizedTx, err := n.internalMarshalizer.Marshal(tx)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	argumentParser := smartContract.NewArgumentParser()
@@ -834,21 +883,25 @@ func (n *Node) ValidateTransaction(tx *transaction.Transaction) error {
 		n.minTransactionVersion,
 	)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	err = intTx.CheckValidity()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	err = txValidator.CheckTxValidity(intTx)
-	if errors.Is(err, process.ErrAccountNotFound) {
-		// we allow the broadcast of provided transaction even if that transaction is not targeted on the current shard
-		return nil
+	return txValidator, intTx, nil
+}
+
+func (n *Node) checkSenderIsInShard(tx *transaction.Transaction) error {
+	senderShardID := n.shardCoordinator.ComputeId(tx.SndAddr)
+	if senderShardID != n.shardCoordinator.SelfId() {
+		return fmt.Errorf("%w, tx sender shard ID: %d, node's shard ID %d",
+			ErrDifferentSenderShardId, senderShardID, n.shardCoordinator.SelfId())
 	}
 
-	return err
+	return nil
 }
 
 func (n *Node) sendBulkTransactionsFromShard(transactions [][]byte, senderShardId uint32) error {
@@ -1012,6 +1065,7 @@ func (n *Node) StartHeartbeat(hbConfig config.HeartbeatConfig, versionNumber str
 		PeerShardMapper:          n.networkShardingCollector,
 		SizeCheckDelta:           n.sizeCheckDelta,
 		ValidatorsProvider:       n.validatorsProvider,
+		CurrentBlockProvider:     n.blkc,
 	}
 
 	var err error
@@ -1053,8 +1107,8 @@ func (n *Node) getLatestValidators() (map[uint32][]*state.ValidatorInfo, map[str
 }
 
 // DirectTrigger will start the hardfork trigger
-func (n *Node) DirectTrigger(epoch uint32) error {
-	return n.hardforkTrigger.Trigger(epoch)
+func (n *Node) DirectTrigger(epoch uint32, withEarlyEndOfEpoch bool) error {
+	return n.hardforkTrigger.Trigger(epoch, withEarlyEndOfEpoch)
 }
 
 // IsSelfTrigger returns true if the trigger's registered public key matches the self public key

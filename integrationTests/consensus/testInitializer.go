@@ -8,13 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ElrondNetwork/elrond-go/crypto/peerSignatureHandler"
-
 	"github.com/ElrondNetwork/elrond-go/config"
 	"github.com/ElrondNetwork/elrond-go/consensus/round"
 	"github.com/ElrondNetwork/elrond-go/core"
 	"github.com/ElrondNetwork/elrond-go/core/pubkeyConverter"
 	"github.com/ElrondNetwork/elrond-go/crypto"
+	"github.com/ElrondNetwork/elrond-go/crypto/peerSignatureHandler"
 	"github.com/ElrondNetwork/elrond-go/crypto/signing"
 	ed25519SingleSig "github.com/ElrondNetwork/elrond-go/crypto/signing/ed25519/singlesig"
 	"github.com/ElrondNetwork/elrond-go/crypto/signing/mcl"
@@ -28,6 +27,7 @@ import (
 	"github.com/ElrondNetwork/elrond-go/dataRetriever"
 	"github.com/ElrondNetwork/elrond-go/epochStart"
 	"github.com/ElrondNetwork/elrond-go/epochStart/metachain"
+	"github.com/ElrondNetwork/elrond-go/epochStart/notifier"
 	"github.com/ElrondNetwork/elrond-go/hashing"
 	"github.com/ElrondNetwork/elrond-go/hashing/blake2b"
 	"github.com/ElrondNetwork/elrond-go/hashing/sha256"
@@ -53,7 +53,6 @@ const signatureSize = 48
 const publicKeySize = 96
 
 var p2pBootstrapDelay = time.Second * 5
-var consensusChainID = []byte("consensus chain ID")
 var testPubkeyConverter, _ = pubkeyConverter.NewHexPubkeyConverter(32)
 
 type testNode struct {
@@ -155,6 +154,7 @@ func createTestStore() dataRetriever.StorageService {
 	store.AddStorer(dataRetriever.PeerChangesUnit, createMemUnit())
 	store.AddStorer(dataRetriever.BlockHeaderUnit, createMemUnit())
 	store.AddStorer(dataRetriever.BootstrapUnit, createMemUnit())
+	store.AddStorer(dataRetriever.ReceiptsUnit, createMemUnit())
 	return store
 }
 
@@ -321,7 +321,7 @@ func createConsensusOnlyNode(
 
 	argsNewMetaEpochStart := &metachain.ArgsNewMetaEpochStartTrigger{
 		GenesisTime:        time.Unix(startTime, 0),
-		EpochStartNotifier: &mock.EpochStartNotifierStub{},
+		EpochStartNotifier: notifier.NewEpochStartSubscriptionHandler(),
 		Settings: &config.EpochStartConfig{
 			MinRoundsBetweenEpochs: 1,
 			RoundsPerEpoch:         3,
@@ -408,7 +408,7 @@ func createConsensusOnlyNode(
 		node.WithRequestedItemsHandler(&mock.RequestedItemsHandlerStub{}),
 		node.WithHeaderSigVerifier(&mock.HeaderSigVerifierStub{}),
 		node.WithHeaderIntegrityVerifier(&mock.HeaderIntegrityVerifierStub{}),
-		node.WithChainID(consensusChainID),
+		node.WithChainID(integrationTests.ChainID),
 		node.WithRequestHandler(&mock.RequestHandlerStub{}),
 		node.WithUint64ByteSliceConverter(&mock.Uint64ByteSliceConverterMock{}),
 		node.WithBlockTracker(&mock.BlockTrackerStub{}),
@@ -416,6 +416,7 @@ func createConsensusOnlyNode(
 		node.WithSignatureSize(signatureSize),
 		node.WithPublicKeySize(publicKeySize),
 		node.WithPeerHonestyHandler(&mock.PeerHonestyHandlerStub{}),
+		node.WithFallbackHeaderValidator(&testscommon.FallBackHeaderValidatorStub{}),
 		node.WithInterceptorsContainer(&mock.InterceptorsContainerStub{}),
 		node.WithHardforkTrigger(&mock.HardforkTriggerStub{}),
 		node.WithWatchdogTimer(&mock.WatchdogMock{}),
@@ -458,7 +459,7 @@ func createNodes(
 
 		kp := cp.keys[0][i]
 		shardCoordinator, _ := sharding.NewMultiShardCoordinator(uint32(1), uint32(0))
-		epochStartRegistrationHandler := &mock.EpochStartNotifierStub{}
+		epochStartRegistrationHandler := notifier.NewEpochStartSubscriptionHandler()
 		bootStorer := integrationTests.CreateMemUnit()
 		consensusCache, _ := lrucache.NewCache(10000)
 

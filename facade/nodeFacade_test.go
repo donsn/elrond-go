@@ -10,6 +10,7 @@ import (
 
 	"github.com/ElrondNetwork/elrond-go/config"
 	"github.com/ElrondNetwork/elrond-go/core"
+	atomicCore "github.com/ElrondNetwork/elrond-go/core/atomic"
 	"github.com/ElrondNetwork/elrond-go/core/check"
 	"github.com/ElrondNetwork/elrond-go/core/statistics"
 	"github.com/ElrondNetwork/elrond-go/data/state"
@@ -21,6 +22,7 @@ import (
 	"github.com/ElrondNetwork/elrond-go/process"
 	vmcommon "github.com/ElrondNetwork/elrond-vm-common"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 //TODO increase code coverage
@@ -30,6 +32,7 @@ func createMockArguments() ArgNodeFacade {
 		Node:                   &mock.NodeStub{},
 		ApiResolver:            &mock.ApiResolverStub{},
 		RestAPIServerDebugMode: false,
+		TxSimulatorProcessor:   &mock.TxExecutionSimulatorStub{},
 		WsAntifloodConfig: config.WebServerAntifloodConfig{
 			SimultaneousRequests:         1,
 			SameSourceRequests:           1,
@@ -289,6 +292,24 @@ func TestNodeFacade_GetAccount(t *testing.T) {
 	assert.Equal(t, called, 1)
 }
 
+func TestNodeFacade_GetUsername(t *testing.T) {
+	t.Parallel()
+
+	expectedUsername := "username"
+	node := &mock.NodeStub{}
+	node.GetUsernameCalled = func(address string) (string, error) {
+		return expectedUsername, nil
+	}
+
+	arg := createMockArguments()
+	arg.Node = node
+	nf, _ := NewNodeFacade(arg)
+
+	username, err := nf.GetUsername("test")
+	assert.NoError(t, err)
+	assert.Equal(t, expectedUsername, username)
+}
+
 func TestNodeFacade_GetHeartbeatsReturnsNilShouldErr(t *testing.T) {
 	t.Parallel()
 
@@ -351,7 +372,8 @@ func TestNodeFacade_GetDataValue(t *testing.T) {
 			return &vmcommon.VMOutput{}, nil
 		},
 	}
-	nf, _ := NewNodeFacade(arg)
+	nf, err := NewNodeFacade(arg)
+	require.NoError(t, err)
 
 	_, _ = nf.ExecuteSCQuery(nil)
 	assert.True(t, wasCalled)
@@ -489,21 +511,24 @@ func TestNodeFacade_Trigger(t *testing.T) {
 	arg := createMockArguments()
 	epoch := uint32(4638)
 	recoveredEpoch := uint32(0)
+	recoveredWithEarlyEndOfEpoch := atomicCore.Flag{}
 	arg.Node = &mock.NodeStub{
-		DirectTriggerCalled: func(e uint32) error {
+		DirectTriggerCalled: func(epoch uint32, withEarlyEndOfEpoch bool) error {
 			wasCalled = true
-			atomic.StoreUint32(&recoveredEpoch, e)
+			atomic.StoreUint32(&recoveredEpoch, epoch)
+			recoveredWithEarlyEndOfEpoch.Toggle(withEarlyEndOfEpoch)
 
 			return expectedErr
 		},
 	}
 	nf, _ := NewNodeFacade(arg)
 
-	err := nf.Trigger(epoch)
+	err := nf.Trigger(epoch, true)
 
 	assert.True(t, wasCalled)
 	assert.Equal(t, expectedErr, err)
 	assert.Equal(t, epoch, atomic.LoadUint32(&recoveredEpoch))
+	assert.True(t, recoveredWithEarlyEndOfEpoch.IsSet())
 }
 
 func TestNodeFacade_IsSelfTrigger(t *testing.T) {

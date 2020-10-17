@@ -3,6 +3,8 @@ package metrics
 import (
 	"errors"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/ElrondNetwork/elrond-go/cmd/node/factory"
@@ -47,6 +49,7 @@ func InitMetrics(
 	isSyncing := uint64(1)
 	initUint := uint64(0)
 	initString := ""
+	initZeroString := "0"
 
 	appStatusHandler.SetStringValue(core.MetricPublicKeyBlockSign, pubkeyStr)
 	appStatusHandler.SetUInt64Value(core.MetricShardId, shardId)
@@ -72,7 +75,7 @@ func InitMetrics(
 	appStatusHandler.SetUInt64Value(core.MetricNumShardHeadersFromPool, initUint)
 	appStatusHandler.SetUInt64Value(core.MetricNumShardHeadersProcessed, initUint)
 	appStatusHandler.SetUInt64Value(core.MetricNumTimesInForkChoice, initUint)
-	appStatusHandler.SetUInt64Value(core.MetricHighestFinalBlockInShard, initUint)
+	appStatusHandler.SetUInt64Value(core.MetricHighestFinalBlock, initUint)
 	appStatusHandler.SetUInt64Value(core.MetricCountConsensusAcceptedBlocks, initUint)
 	appStatusHandler.SetUInt64Value(core.MetricRoundAtEpochStart, initUint)
 	appStatusHandler.SetUInt64Value(core.MetricNonceAtEpochStart, initUint)
@@ -98,6 +101,11 @@ func InitMetrics(
 	appStatusHandler.SetUInt64Value(core.MetricStartTime, uint64(nodesConfig.StartTime))
 	appStatusHandler.SetUInt64Value(core.MetricRoundDuration, nodesConfig.RoundDuration)
 	appStatusHandler.SetUInt64Value(core.MetricMinTransactionVersion, uint64(nodesConfig.MinTransactionVersion))
+	appStatusHandler.SetStringValue(core.MetricTotalSupply, economicsConfig.GlobalSettings.GenesisTotalSupply)
+	appStatusHandler.SetStringValue(core.MetricInflation, initZeroString)
+	appStatusHandler.SetStringValue(core.MetricDevRewards, initZeroString)
+	appStatusHandler.SetStringValue(core.MetricTotalFees, initZeroString)
+	appStatusHandler.SetUInt64Value(core.MetricEpochForEconomicsData, initUint)
 
 	var consensusGroupSize uint32
 	switch {
@@ -243,19 +251,32 @@ func computeConnectedPeers(
 
 func setP2pConnectedPeersMetrics(appStatusHandler core.AppStatusHandler, info *p2p.ConnectedPeersInfo) {
 	appStatusHandler.SetStringValue(core.MetricP2PUnknownPeers, sliceToString(info.UnknownPeers))
-	appStatusHandler.SetStringValue(core.MetricP2PIntraShardValidators, sliceToString(info.IntraShardValidators))
-	appStatusHandler.SetStringValue(core.MetricP2PIntraShardObservers, sliceToString(info.IntraShardObservers))
-	appStatusHandler.SetStringValue(core.MetricP2PCrossShardValidators, sliceToString(info.CrossShardValidators))
-	appStatusHandler.SetStringValue(core.MetricP2PCrossShardObservers, sliceToString(info.CrossShardObservers))
+	appStatusHandler.SetStringValue(core.MetricP2PIntraShardValidators, mapToString(info.IntraShardValidators))
+	appStatusHandler.SetStringValue(core.MetricP2PIntraShardObservers, mapToString(info.IntraShardObservers))
+	appStatusHandler.SetStringValue(core.MetricP2PCrossShardValidators, mapToString(info.CrossShardValidators))
+	appStatusHandler.SetStringValue(core.MetricP2PCrossShardObservers, mapToString(info.CrossShardObservers))
 }
 
 func sliceToString(input []string) string {
-	output := ""
-	for _, str := range input {
-		output += str + ","
+	return strings.Join(input, ",")
+}
+
+func mapToString(input map[uint32][]string) string {
+	strs := make([]string, 0, len(input))
+	keys := make([]uint32, 0, len(input))
+	for shard := range input {
+		keys = append(keys, shard)
 	}
 
-	return output
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i] < keys[j]
+	})
+
+	for _, key := range keys {
+		strs = append(strs, sliceToString(input[key]))
+	}
+
+	return strings.Join(strs, ",")
 }
 
 func setCurrentP2pNodeAddresses(

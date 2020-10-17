@@ -3,7 +3,10 @@ package indexer
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"math/big"
+	"strconv"
+	"strings"
 
 	"github.com/ElrondNetwork/elrond-go/core"
 	"github.com/ElrondNetwork/elrond-go/core/indexer/disabled"
@@ -16,13 +19,10 @@ import (
 	"github.com/ElrondNetwork/elrond-go/hashing"
 	"github.com/ElrondNetwork/elrond-go/marshal"
 	"github.com/ElrondNetwork/elrond-go/process"
+	vmcommon "github.com/ElrondNetwork/elrond-vm-common"
 )
 
 const (
-	txStatusSuccess     = "Success"
-	txStatusPending     = "Pending"
-	txStatusInvalid     = "Invalid"
-	txStatusNotExecuted = "Not Executed"
 	// A smart contract action (deploy, call, ...) should have minimum 2 smart contract results
 	// exception to this rule are smart contract calls to ESDT contract
 	minimumNumberOfSmartContractResults = 2
@@ -62,6 +62,7 @@ func (tdp *txDatabaseProcessor) prepareTransactionsForDatabase(
 	receipts := groupReceipts(txPool)
 	scResults := groupSmartContractResults(txPool)
 
+	transactions = tdp.setTransactionSearchOrder(transactions, selfShardID)
 	for _, rec := range receipts {
 		tx, ok := transactions[string(rec.TxHash)]
 		if !ok {
@@ -77,28 +78,39 @@ func (tdp *txDatabaseProcessor) prepareTransactionsForDatabase(
 	}
 
 	countScResults := make(map[string]int)
-	for _, scResult := range scResults {
+	for scHash, scResult := range scResults {
 		tx, ok := transactions[string(scResult.OriginalTxHash)]
 		if !ok {
 			continue
 		}
 
-		tx = tdp.addScResultInfoInTx(scResult, tx)
-
+		tx = tdp.addScResultInfoInTx(scHash, scResult, tx)
 		countScResults[string(scResult.OriginalTxHash)]++
+		delete(scResults, scHash)
+
+		// append child smart contract results
+		scrs := findAllChildScrResults(scHash, scResults)
+		for scHash, sc := range scrs {
+			tx = tdp.addScResultInfoInTx(scHash, sc, tx)
+			countScResults[string(scResult.OriginalTxHash)]++
+		}
 	}
 
 	for hash, nrScResult := range countScResults {
 		if nrScResult < minimumNumberOfSmartContractResults {
 			if len(transactions[hash].SmartContractResults) > 0 {
 				scResultData := transactions[hash].SmartContractResults[0].Data
-				if bytes.Contains(scResultData, []byte("@ok")) {
+				if isScResultSuccessful(scResultData) {
 					// ESDT contract calls generate just one smart contract result
 					continue
 				}
 			}
 
-			transactions[hash].Status = txStatusNotExecuted
+			if strings.Contains(string(transactions[hash].Data), "relayedTx") {
+				continue
+			}
+
+			transactions[hash].Status = transaction.TxStatusFail.String()
 		}
 	}
 
@@ -118,8 +130,26 @@ func (tdp *txDatabaseProcessor) prepareTransactionsForDatabase(
 	return append(convertMapTxsToSlice(transactions), rewardsTxs...)
 }
 
-func (tdp *txDatabaseProcessor) addScResultInfoInTx(scr *smartContractResult.SmartContractResult, tx *Transaction) *Transaction {
-	dbScResult := tdp.commonProcessor.convertScResultInDatabaseScr(scr)
+func isScResultSuccessful(scResultData []byte) bool {
+	okReturnDataNewVersion := []byte("@" + hex.EncodeToString([]byte(vmcommon.Ok.String())))
+	okReturnDataOldVersion := []byte("@" + vmcommon.Ok.String()) // backwards compatible
+	return bytes.Contains(scResultData, okReturnDataNewVersion) || bytes.Contains(scResultData, okReturnDataOldVersion)
+}
+
+func findAllChildScrResults(hash string, scrs map[string]*smartContractResult.SmartContractResult) map[string]*smartContractResult.SmartContractResult {
+	scrResults := make(map[string]*smartContractResult.SmartContractResult, 0)
+	for scrHash, scr := range scrs {
+		if string(scr.OriginalTxHash) == hash {
+			scrResults[scrHash] = scr
+			delete(scrs, scrHash)
+		}
+	}
+
+	return scrResults
+}
+
+func (tdp *txDatabaseProcessor) addScResultInfoInTx(scHash string, scr *smartContractResult.SmartContractResult, tx *Transaction) *Transaction {
+	dbScResult := tdp.commonProcessor.convertScResultInDatabaseScr(scHash, scr)
 	tx.SmartContractResults = append(tx.SmartContractResults, dbScResult)
 
 	if isSCRForSenderWithGasUsed(dbScResult, tx) {
@@ -189,9 +219,9 @@ func (tdp *txDatabaseProcessor) groupNormalTxsAndRewards(
 			continue
 		}
 
-		mbTxStatus := txStatusPending
+		mbTxStatus := transaction.TxStatusPending.String()
 		if selfShardID == mb.ReceiverShardID {
-			mbTxStatus = txStatusSuccess
+			mbTxStatus = transaction.TxStatusSuccess.String()
 		}
 
 		switch mb.Type {
@@ -205,7 +235,7 @@ func (tdp *txDatabaseProcessor) groupNormalTxsAndRewards(
 		case block.InvalidBlock:
 			txs := getTransactions(txPool, mb.TxHashes)
 			for hash, tx := range txs {
-				dbTx := tdp.commonProcessor.buildTransaction(tx, []byte(hash), mbHash, mb, header, txStatusInvalid)
+				dbTx := tdp.commonProcessor.buildTransaction(tx, []byte(hash), mbHash, mb, header, transaction.TxStatusInvalid.String())
 				transactions[hash] = dbTx
 				delete(txPool, hash)
 			}
@@ -224,15 +254,41 @@ func (tdp *txDatabaseProcessor) groupNormalTxsAndRewards(
 	return transactions, rewardsTxs
 }
 
-func groupSmartContractResults(txPool map[string]data.TransactionHandler) []*smartContractResult.SmartContractResult {
-	scResults := make([]*smartContractResult.SmartContractResult, 0)
-	for _, tx := range txPool {
+func (tdp *txDatabaseProcessor) setTransactionSearchOrder(transactions map[string]*Transaction, shardId uint32) map[string]*Transaction {
+	currentOrder := 0
+	shardIdentifier := tdp.createShardIdentifier(shardId)
+
+	for _, tx := range transactions {
+		stringOrder := fmt.Sprintf("%d%d", shardIdentifier, currentOrder)
+		order, err := strconv.ParseUint(stringOrder, 10, 32)
+		if err != nil {
+			order = 0
+			log.Debug("processTransactions.setTransactionSearchOrder", "could not set uint32 search order", err.Error())
+		}
+		tx.SearchOrder = uint32(order)
+		currentOrder++
+	}
+
+	return transactions
+}
+
+func (tdp *txDatabaseProcessor) createShardIdentifier(shardId uint32) uint32 {
+	shardIdentifier := shardId + 2
+	if shardId == core.MetachainShardId {
+		shardIdentifier = 1
+	}
+
+	return shardIdentifier
+}
+
+func groupSmartContractResults(txPool map[string]data.TransactionHandler) map[string]*smartContractResult.SmartContractResult {
+	scResults := make(map[string]*smartContractResult.SmartContractResult, 0)
+	for hash, tx := range txPool {
 		scResult, ok := tx.(*smartContractResult.SmartContractResult)
 		if !ok {
 			continue
 		}
-
-		scResults = append(scResults, scResult)
+		scResults[hash] = scResult
 	}
 
 	return scResults

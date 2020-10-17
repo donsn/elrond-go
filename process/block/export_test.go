@@ -99,14 +99,15 @@ func NewShardProcessorEmptyWith3shards(
 					return nil
 				},
 			},
-			BlockTracker:       mock.NewBlockTrackerMock(shardCoordinator, genesisBlocks),
-			DataPool:           tdp,
-			BlockChain:         blockChain,
-			BlockSizeThrottler: &mock.BlockSizeThrottlerStub{},
-			Indexer:            &mock.IndexerMock{},
-			TpsBenchmark:       &testscommon.TpsBenchmarkMock{},
-			Version:            "softwareVersion",
-			HistoryRepository:  &mock.HistoryRepositoryStub{},
+			BlockTracker:            mock.NewBlockTrackerMock(shardCoordinator, genesisBlocks),
+			DataPool:                tdp,
+			BlockChain:              blockChain,
+			BlockSizeThrottler:      &mock.BlockSizeThrottlerStub{},
+			Indexer:                 &mock.IndexerMock{},
+			TpsBenchmark:            &testscommon.TpsBenchmarkMock{},
+			HeaderIntegrityVerifier: &mock.HeaderIntegrityVerifierStub{},
+			HistoryRepository:       &testscommon.HistoryRepositoryStub{},
+			EpochNotifier:           &mock.EpochNotifierStub{},
 		},
 	}
 	shardProc, err := NewShardProcessor(arguments)
@@ -355,4 +356,16 @@ func (sp *shardProcessor) GetBootstrapHeadersInfo(
 	selfNotarizedHeadersHashes [][]byte,
 ) []bootstrapStorage.BootstrapHeaderInfo {
 	return sp.getBootstrapHeadersInfo(selfNotarizedHeaders, selfNotarizedHeadersHashes)
+}
+
+func (sp *shardProcessor) RequestMetaHeadersIfNeeded(hdrsAdded uint32, lastMetaHdr data.HeaderHandler) {
+	sp.requestMetaHeadersIfNeeded(hdrsAdded, lastMetaHdr)
+}
+
+func (mp *metaProcessor) RequestShardHeadersIfNeeded(hdrsAddedForShard map[uint32]uint32, lastShardHdr map[uint32]data.HeaderHandler) {
+	mp.requestShardHeadersIfNeeded(hdrsAddedForShard, lastShardHdr)
+}
+
+func (bp *baseProcessor) AddHeaderIntoTrackerPool(nonce uint64, shardID uint32) {
+	bp.addHeaderIntoTrackerPool(nonce, shardID)
 }

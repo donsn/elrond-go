@@ -20,6 +20,7 @@ type systemSCFactory struct {
 	marshalizer         marshal.Marshalizer
 	hasher              hashing.Hasher
 	systemSCConfig      *config.SystemSmartContractsConfig
+	epochNotifier       vm.EpochNotifier
 }
 
 // ArgsNewSystemSCFactory defines the arguments struct needed to create the system SCs
@@ -32,6 +33,7 @@ type ArgsNewSystemSCFactory struct {
 	Marshalizer         marshal.Marshalizer
 	Hasher              hashing.Hasher
 	SystemSCConfig      *config.SystemSmartContractsConfig
+	EpochNotifier       vm.EpochNotifier
 }
 
 // NewSystemSCFactory creates a factory which will instantiate the system smart contracts
@@ -57,6 +59,9 @@ func NewSystemSCFactory(args ArgsNewSystemSCFactory) (*systemSCFactory, error) {
 	if args.SystemSCConfig == nil {
 		return nil, vm.ErrNilSystemSCConfig
 	}
+	if check.IfNil(args.EpochNotifier) {
+		return nil, vm.ErrNilEpochNotifier
+	}
 
 	scf := &systemSCFactory{
 		systemEI:            args.SystemEI,
@@ -66,6 +71,7 @@ func NewSystemSCFactory(args ArgsNewSystemSCFactory) (*systemSCFactory, error) {
 		hasher:              args.Hasher,
 		systemSCConfig:      args.SystemSCConfig,
 		economics:           args.Economics,
+		epochNotifier:       args.EpochNotifier,
 	}
 
 	err := scf.createGasConfig(args.GasMap)
@@ -116,13 +122,15 @@ func (scf *systemSCFactory) createGasConfig(gasMap map[string]map[string]uint64)
 
 func (scf *systemSCFactory) createStakingContract() (vm.SystemSmartContract, error) {
 	argsStaking := systemSmartContracts.ArgsNewStakingSmartContract{
-		MinNumNodes:       uint64(scf.nodesConfigProvider.MinNumberOfNodes()),
-		StakingSCConfig:   scf.systemSCConfig.StakingSystemSCConfig,
-		Eei:               scf.systemEI,
-		StakingAccessAddr: AuctionSCAddress,
-		JailAccessAddr:    JailingAddress,
-		GasCost:           scf.gasCost,
-		Marshalizer:       scf.marshalizer,
+		MinNumNodes:          uint64(scf.nodesConfigProvider.MinNumberOfNodes()),
+		StakingSCConfig:      scf.systemSCConfig.StakingSystemSCConfig,
+		Eei:                  scf.systemEI,
+		StakingAccessAddr:    vm.AuctionSCAddress,
+		JailAccessAddr:       vm.JailingAddress,
+		EndOfEpochAccessAddr: vm.EndOfEpochAddress,
+		GasCost:              scf.gasCost,
+		Marshalizer:          scf.marshalizer,
+		EpochNotifier:        scf.epochNotifier,
 	}
 	staking, err := systemSmartContracts.NewStakingSmartContract(argsStaking)
 	return staking, err
@@ -133,12 +141,13 @@ func (scf *systemSCFactory) createAuctionContract() (vm.SystemSmartContract, err
 		Eei:                scf.systemEI,
 		SigVerifier:        scf.sigVerifier,
 		StakingSCConfig:    scf.systemSCConfig.StakingSystemSCConfig,
-		StakingSCAddress:   StakingSCAddress,
-		AuctionSCAddress:   AuctionSCAddress,
+		StakingSCAddress:   vm.StakingSCAddress,
+		AuctionSCAddress:   vm.AuctionSCAddress,
 		GasCost:            scf.gasCost,
 		Marshalizer:        scf.marshalizer,
 		NumOfNodesToSelect: scf.systemSCConfig.StakingSystemSCConfig.NodesToSelectInAuction,
 		GenesisTotalSupply: scf.economics.GenesisTotalSupply(),
+		EpochNotifier:      scf.epochNotifier,
 	}
 	auction, err := systemSmartContracts.NewStakingAuctionSmartContract(args)
 	return auction, err
@@ -148,10 +157,11 @@ func (scf *systemSCFactory) createESDTContract() (vm.SystemSmartContract, error)
 	argsESDT := systemSmartContracts.ArgsNewESDTSmartContract{
 		Eei:           scf.systemEI,
 		GasCost:       scf.gasCost,
-		ESDTSCAddress: ESDTSCAddress,
+		ESDTSCAddress: vm.ESDTSCAddress,
 		Marshalizer:   scf.marshalizer,
 		Hasher:        scf.hasher,
 		ESDTSCConfig:  scf.systemSCConfig.ESDTSystemSCConfig,
+		EpochNotifier: scf.epochNotifier,
 	}
 	esdt, err := systemSmartContracts.NewESDTSmartContract(argsESDT)
 	return esdt, err
@@ -162,12 +172,13 @@ func (scf *systemSCFactory) createGovernanceContract() (vm.SystemSmartContract, 
 		Eei:                 scf.systemEI,
 		GasCost:             scf.gasCost,
 		GovernanceConfig:    scf.systemSCConfig.GovernanceSystemSCConfig,
-		ESDTSCAddress:       ESDTSCAddress,
+		ESDTSCAddress:       vm.ESDTSCAddress,
 		Marshalizer:         scf.marshalizer,
 		Hasher:              scf.hasher,
-		GovernanceSCAddress: GovernanceSCAddress,
-		StakingSCAddress:    StakingSCAddress,
-		AuctionSCAddress:    AuctionSCAddress,
+		GovernanceSCAddress: vm.GovernanceSCAddress,
+		StakingSCAddress:    vm.StakingSCAddress,
+		AuctionSCAddress:    vm.AuctionSCAddress,
+		EpochNotifier:       scf.epochNotifier,
 	}
 	governance, err := systemSmartContracts.NewGovernanceContract(argsGovernance)
 	return governance, err
@@ -182,7 +193,7 @@ func (scf *systemSCFactory) Create() (vm.SystemSCContainer, error) {
 		return nil, err
 	}
 
-	err = scContainer.Add(StakingSCAddress, staking)
+	err = scContainer.Add(vm.StakingSCAddress, staking)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +203,7 @@ func (scf *systemSCFactory) Create() (vm.SystemSCContainer, error) {
 		return nil, err
 	}
 
-	err = scContainer.Add(AuctionSCAddress, auction)
+	err = scContainer.Add(vm.AuctionSCAddress, auction)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +213,7 @@ func (scf *systemSCFactory) Create() (vm.SystemSCContainer, error) {
 		return nil, err
 	}
 
-	err = scContainer.Add(ESDTSCAddress, esdt)
+	err = scContainer.Add(vm.ESDTSCAddress, esdt)
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +223,7 @@ func (scf *systemSCFactory) Create() (vm.SystemSCContainer, error) {
 		return nil, err
 	}
 
-	err = scContainer.Add(GovernanceSCAddress, governance)
+	err = scContainer.Add(vm.GovernanceSCAddress, governance)
 	if err != nil {
 		return nil, err
 	}

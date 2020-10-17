@@ -12,6 +12,7 @@ import (
 	arwenConfig "github.com/ElrondNetwork/arwen-wasm-vm/config"
 	logger "github.com/ElrondNetwork/elrond-go-logger"
 	"github.com/ElrondNetwork/elrond-go/config"
+	"github.com/ElrondNetwork/elrond-go/core/forking"
 	"github.com/ElrondNetwork/elrond-go/core/pubkeyConverter"
 	"github.com/ElrondNetwork/elrond-go/data/state"
 	dataTransaction "github.com/ElrondNetwork/elrond-go/data/transaction"
@@ -206,27 +207,29 @@ func CreateTxProcessorWithOneSCExecutorMockVM(accnts state.AccountsAdapter, opGa
 		GasHandler: &mock.GasHandlerMock{
 			SetGasRefundedCalled: func(gasRefunded uint64, hash []byte) {},
 		},
+		GasSchedule:      gasSchedule,
 		BuiltInFunctions: blockChainHook.GetBuiltInFunctions(),
 		TxLogsProcessor:  &mock.TxLogsProcessorStub{},
+		EpochNotifier:    forking.NewGenericEpochNotifier(),
 	}
 	scProcessor, _ := smartContract.NewSmartContractProcessor(argsNewSCProcessor)
 
 	argsNewTxProcessor := transaction.ArgsNewTxProcessor{
-		Accounts:          accnts,
-		Hasher:            testHasher,
-		PubkeyConv:        pubkeyConv,
-		Marshalizer:       testMarshalizer,
-		SignMarshalizer:   testMarshalizer,
-		ShardCoordinator:  oneShardCoordinator,
-		ScProcessor:       scProcessor,
-		TxFeeHandler:      &mock.UnsignedTxHandlerMock{},
-		TxTypeHandler:     txTypeHandler,
-		EconomicsFee:      &mock.FeeHandlerStub{},
-		ReceiptForwarder:  &mock.IntermediateTransactionHandlerMock{},
-		BadTxForwarder:    &mock.IntermediateTransactionHandlerMock{},
-		ArgsParser:        smartContract.NewArgumentParser(),
-		ScrForwarder:      &mock.IntermediateTransactionHandlerMock{},
-		DisabledRelayedTx: false,
+		Accounts:         accnts,
+		Hasher:           testHasher,
+		PubkeyConv:       pubkeyConv,
+		Marshalizer:      testMarshalizer,
+		SignMarshalizer:  testMarshalizer,
+		ShardCoordinator: oneShardCoordinator,
+		ScProcessor:      scProcessor,
+		TxFeeHandler:     &mock.UnsignedTxHandlerMock{},
+		TxTypeHandler:    txTypeHandler,
+		EconomicsFee:     &mock.FeeHandlerStub{},
+		ReceiptForwarder: &mock.IntermediateTransactionHandlerMock{},
+		BadTxForwarder:   &mock.IntermediateTransactionHandlerMock{},
+		ArgsParser:       smartContract.NewArgumentParser(),
+		ScrForwarder:     &mock.IntermediateTransactionHandlerMock{},
+		EpochNotifier:    forking.NewGenericEpochNotifier(),
 	}
 	txProcessor, _ := transaction.NewTxProcessor(argsNewTxProcessor)
 
@@ -266,6 +269,7 @@ func CreateVMAndBlockchainHook(
 		GasMap:          actualGasSchedule,
 		MapDNSAddresses: make(map[string]struct{}),
 		Marshalizer:     testMarshalizer,
+		Accounts:        accnts,
 	}
 	builtInFuncs, _ := builtInFunctions.CreateBuiltInFunctionContainer(argsBuiltIn)
 
@@ -280,9 +284,6 @@ func CreateVMAndBlockchainHook(
 		BuiltInFunctions: builtInFuncs,
 	}
 
-	//Uncomment this to enable trace printing of the vm
-	//vm.SetTracePretty()
-
 	maxGasLimitPerBlock := uint64(0xFFFFFFFFFFFFFFFF)
 	vmFactory, err := shard.NewVMContainerFactory(
 		config.VirtualMachineConfig{
@@ -292,6 +293,7 @@ func CreateVMAndBlockchainHook(
 		maxGasLimitPerBlock,
 		actualGasSchedule,
 		args,
+		0,
 	)
 	if err != nil {
 		log.LogIfError(err)
@@ -303,6 +305,7 @@ func CreateVMAndBlockchainHook(
 	}
 
 	blockChainHook, _ := vmFactory.BlockChainHookImpl().(*hooks.BlockChainHookImpl)
+	_ = builtInFunctions.SetPayableHandler(builtInFuncs, blockChainHook)
 
 	return vmContainer, blockChainHook
 }
@@ -345,28 +348,30 @@ func CreateTxProcessorWithOneSCExecutorWithVMs(
 		GasHandler: &mock.GasHandlerMock{
 			SetGasRefundedCalled: func(gasRefunded uint64, hash []byte) {},
 		},
+		GasSchedule:      gasSchedule,
 		BuiltInFunctions: blockChainHook.GetBuiltInFunctions(),
 		TxLogsProcessor:  &mock.TxLogsProcessorStub{},
+		EpochNotifier:    forking.NewGenericEpochNotifier(),
 	}
 
 	scProcessor, _ := smartContract.NewSmartContractProcessor(argsNewSCProcessor)
 
 	argsNewTxProcessor := transaction.ArgsNewTxProcessor{
-		Accounts:          accnts,
-		Hasher:            testHasher,
-		PubkeyConv:        pubkeyConv,
-		Marshalizer:       testMarshalizer,
-		SignMarshalizer:   testMarshalizer,
-		ShardCoordinator:  oneShardCoordinator,
-		ScProcessor:       scProcessor,
-		TxFeeHandler:      &mock.UnsignedTxHandlerMock{},
-		TxTypeHandler:     txTypeHandler,
-		EconomicsFee:      &mock.FeeHandlerStub{},
-		ReceiptForwarder:  &mock.IntermediateTransactionHandlerMock{},
-		BadTxForwarder:    &mock.IntermediateTransactionHandlerMock{},
-		ArgsParser:        smartContract.NewArgumentParser(),
-		ScrForwarder:      &mock.IntermediateTransactionHandlerMock{},
-		DisabledRelayedTx: false,
+		Accounts:         accnts,
+		Hasher:           testHasher,
+		PubkeyConv:       pubkeyConv,
+		Marshalizer:      testMarshalizer,
+		SignMarshalizer:  testMarshalizer,
+		ShardCoordinator: oneShardCoordinator,
+		ScProcessor:      scProcessor,
+		TxFeeHandler:     &mock.UnsignedTxHandlerMock{},
+		TxTypeHandler:    txTypeHandler,
+		EconomicsFee:     &mock.FeeHandlerStub{},
+		ReceiptForwarder: &mock.IntermediateTransactionHandlerMock{},
+		BadTxForwarder:   &mock.IntermediateTransactionHandlerMock{},
+		ArgsParser:       smartContract.NewArgumentParser(),
+		ScrForwarder:     &mock.IntermediateTransactionHandlerMock{},
+		EpochNotifier:    forking.NewGenericEpochNotifier(),
 	}
 	txProcessor, _ := transaction.NewTxProcessor(argsNewTxProcessor)
 
@@ -409,7 +414,7 @@ func TestDeployedContractContents(
 	}
 }
 
-// GetAccount -
+// AccountExists -
 func AccountExists(accnts state.AccountsAdapter, addressBytes []byte) bool {
 	accnt, _ := accnts.GetExistingAccount(addressBytes)
 
@@ -549,7 +554,7 @@ func ComputeExpectedBalance(
 
 // GetIntValueFromSC -
 func GetIntValueFromSC(gasSchedule map[string]map[string]uint64, accnts state.AccountsAdapter, scAddressBytes []byte, funcName string, args ...[]byte) *big.Int {
-	vmContainer, _ := CreateVMAndBlockchainHook(accnts, gasSchedule)
+	vmContainer, blockChainHook := CreateVMAndBlockchainHook(accnts, gasSchedule)
 	defer func() {
 		_ = vmContainer.Close()
 	}()
@@ -560,7 +565,7 @@ func GetIntValueFromSC(gasSchedule map[string]map[string]uint64, accnts state.Ac
 		},
 	}
 
-	scQueryService, _ := smartContract.NewSCQueryService(vmContainer, feeHandler)
+	scQueryService, _ := smartContract.NewSCQueryService(vmContainer, feeHandler, blockChainHook, &mock.BlockChainMock{})
 
 	vmOutput, err := scQueryService.ExecuteQuery(&process.SCQuery{
 		ScAddress: scAddressBytes,

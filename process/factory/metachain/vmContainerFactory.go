@@ -11,6 +11,7 @@ import (
 	"github.com/ElrondNetwork/elrond-go/process/factory"
 	"github.com/ElrondNetwork/elrond-go/process/factory/containers"
 	"github.com/ElrondNetwork/elrond-go/process/smartContract/hooks"
+	"github.com/ElrondNetwork/elrond-go/sharding"
 	"github.com/ElrondNetwork/elrond-go/vm"
 	systemVMFactory "github.com/ElrondNetwork/elrond-go/vm/factory"
 	systemVMProcess "github.com/ElrondNetwork/elrond-go/vm/process"
@@ -22,6 +23,7 @@ import (
 var _ process.VirtualMachinesContainerFactory = (*vmContainerFactory)(nil)
 
 type vmContainerFactory struct {
+	chanceComputer      sharding.ChanceComputer
 	validatorAccountsDB state.AccountsAdapter
 	blockChainHookImpl  *hooks.BlockChainHookImpl
 	cryptoHook          vmcommon.CryptoHook
@@ -33,6 +35,7 @@ type vmContainerFactory struct {
 	hasher              hashing.Hasher
 	marshalizer         marshal.Marshalizer
 	systemSCConfig      *config.SystemSmartContractsConfig
+	epochNotifier       process.EpochNotifier
 }
 
 // NewVMContainerFactory is responsible for creating a new virtual machine factory object
@@ -46,6 +49,8 @@ func NewVMContainerFactory(
 	marshalizer marshal.Marshalizer,
 	systemSCConfig *config.SystemSmartContractsConfig,
 	validatorAccountsDB state.AccountsAdapter,
+	chanceComputer sharding.ChanceComputer,
+	epochNotifier process.EpochNotifier,
 ) (*vmContainerFactory, error) {
 	if economics == nil {
 		return nil, process.ErrNilEconomicsData
@@ -68,6 +73,9 @@ func NewVMContainerFactory(
 	if check.IfNil(validatorAccountsDB) {
 		return nil, vm.ErrNilValidatorAccountsDB
 	}
+	if check.IfNil(chanceComputer) {
+		return nil, vm.ErrNilChanceComputer
+	}
 
 	blockChainHookImpl, err := hooks.NewBlockChainHookImpl(argBlockChainHook)
 	if err != nil {
@@ -86,6 +94,8 @@ func NewVMContainerFactory(
 		marshalizer:         marshalizer,
 		systemSCConfig:      systemSCConfig,
 		validatorAccountsDB: validatorAccountsDB,
+		chanceComputer:      chanceComputer,
+		epochNotifier:       epochNotifier,
 	}, nil
 }
 
@@ -113,6 +123,7 @@ func (vmf *vmContainerFactory) createSystemVM() (vmcommon.VMExecutionHandler, er
 		vmf.cryptoHook,
 		atArgumentParser,
 		vmf.validatorAccountsDB,
+		vmf.chanceComputer,
 	)
 	if err != nil {
 		return nil, err
@@ -127,6 +138,7 @@ func (vmf *vmContainerFactory) createSystemVM() (vmcommon.VMExecutionHandler, er
 		Marshalizer:         vmf.marshalizer,
 		SystemSCConfig:      vmf.systemSCConfig,
 		Economics:           vmf.economics,
+		EpochNotifier:       vmf.epochNotifier,
 	}
 	scFactory, err := systemVMFactory.NewSystemSCFactory(argsNewSystemScFactory)
 	if err != nil {

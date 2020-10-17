@@ -40,6 +40,9 @@ var ErrNilTxFeeHandler = errors.New("trying to set a nil tx fee handler")
 // ErrNilPublicKey signals that a nil public key has been provided
 var ErrNilPublicKey = errors.New("trying to set nil public key")
 
+// ErrAccountNotFound signals that an account was not found in trie
+var ErrAccountNotFound = errors.New("account not found")
+
 // ErrZeroRoundDurationNotSupported signals that 0 seconds round duration is not supported
 var ErrZeroRoundDurationNotSupported = errors.New("0 round duration time is not supported")
 
@@ -169,6 +172,9 @@ var ErrUnknownPeerID = errors.New("unknown peer ID")
 // ErrNilPeerHonestyHandler signals that a nil peer honesty handler has been provided
 var ErrNilPeerHonestyHandler = errors.New("nil peer honesty handler")
 
+// ErrNilFallbackHeaderValidator signals that a nil fallback header validator has been provided
+var ErrNilFallbackHeaderValidator = errors.New("nil fallback header validator")
+
 // ErrNilWatchdog signals that a nil watchdog has been provided
 var ErrNilWatchdog = errors.New("nil watchdog")
 
@@ -180,3 +186,18 @@ var ErrNilHistoryRepository = errors.New("history repository is nil")
 
 // ErrNilPeerSignatureHandler signals that a nil peerSignatureHandler object has been provided
 var ErrNilPeerSignatureHandler = errors.New("trying to set nil peerSignatureHandler")
+
+// ErrNilTxSimulatorProcessor signals that a nil transaction simulator processor has been provided
+var ErrNilTxSimulatorProcessor = errors.New("nil transaction simulator processor")
+
+// ErrNilIntermediateProcessorContainer signals that intermediate processors container is nil
+var ErrNilIntermediateProcessorContainer = errors.New("intermediate processor container is nil")
+
+// ErrTransactionNotFound signals that a transaction was not found
+var ErrTransactionNotFound = errors.New("transaction not found")
+
+// ErrCannotRetrieveTransaction signals that a transaction was not found
+var ErrCannotRetrieveTransaction = errors.New("transaction cannot be retrieved")
+
+// ErrDifferentSenderShardId signals that a different shard ID was detected between the sender shard ID and the current node shard ID
+var ErrDifferentSenderShardId = errors.New("different shard ID between the transaction sender shard ID and current node shard ID")

@@ -33,9 +33,7 @@ func NewOneNodeNetwork() *oneNodeNetwork {
 
 // Stop stops the test network
 func (n *oneNodeNetwork) Stop() {
-	defer func() {
-		_ = n.Node.Messenger.Close()
-	}()
+	_ = n.Node.Messenger.Close()
 }
 
 // Mint mints the given address
@@ -48,7 +46,7 @@ func (n *oneNodeNetwork) GetMinGasPrice() uint64 {
 	return n.Node.EconomicsData.GetMinGasPrice()
 }
 
-// GetMinGasPrice returns the max gas per block
+// MaxGasLimitPerBlock returns the max gas per block
 func (n *oneNodeNetwork) MaxGasLimitPerBlock() uint64 {
 	return n.Node.EconomicsData.MaxGasLimitPerBlock(0) - 1
 }

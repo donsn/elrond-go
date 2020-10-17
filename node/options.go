@@ -8,7 +8,7 @@ import (
 	"github.com/ElrondNetwork/elrond-go/consensus/spos"
 	"github.com/ElrondNetwork/elrond-go/core"
 	"github.com/ElrondNetwork/elrond-go/core/check"
-	"github.com/ElrondNetwork/elrond-go/core/fullHistory"
+	"github.com/ElrondNetwork/elrond-go/core/dblookupext"
 	"github.com/ElrondNetwork/elrond-go/core/indexer"
 	"github.com/ElrondNetwork/elrond-go/crypto"
 	"github.com/ElrondNetwork/elrond-go/data"
@@ -475,7 +475,7 @@ func WithRequestedItemsHandler(requestedItemsHandler dataRetriever.RequestedItem
 }
 
 // WithHeaderSigVerifier sets up a header sig verifier for the Node
-func WithHeaderSigVerifier(headerSigVerifier spos.RandSeedVerifier) Option {
+func WithHeaderSigVerifier(headerSigVerifier consensus.HeaderSigVerifier) Option {
 	return func(n *Node) error {
 		if check.IfNil(headerSigVerifier) {
 			return ErrNilHeaderSigVerifier
@@ -690,6 +690,17 @@ func WithPeerHonestyHandler(peerHonestyHandler consensus.PeerHonestyHandler) Opt
 	}
 }
 
+// WithFallbackHeaderValidator sets up a fallback header validator for the Node
+func WithFallbackHeaderValidator(fallbackHeaderValidator consensus.FallbackHeaderValidator) Option {
+	return func(n *Node) error {
+		if check.IfNil(fallbackHeaderValidator) {
+			return ErrNilFallbackHeaderValidator
+		}
+		n.fallbackHeaderValidator = fallbackHeaderValidator
+		return nil
+	}
+}
+
 // WithWatchdogTimer sets up a watchdog for the Node
 func WithWatchdogTimer(watchdog core.WatchdogTimer) Option {
 	return func(n *Node) error {
@@ -714,7 +725,7 @@ func WithPeerSignatureHandler(peerSignatureHandler crypto.PeerSignatureHandler) 
 }
 
 // WithHistoryRepository sets up a history repository for the node
-func WithHistoryRepository(historyRepo fullHistory.HistoryRepository) Option {
+func WithHistoryRepository(historyRepo dblookupext.HistoryRepository) Option {
 	return func(n *Node) error {
 		if check.IfNil(historyRepo) {
 			return ErrNilHistoryRepository
